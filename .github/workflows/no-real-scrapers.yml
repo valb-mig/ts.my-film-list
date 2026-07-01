@@ -1,0 +1,40 @@
+name: Guard against real scrapers
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  guard-scrapers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Only allow the contract files in src/lib/scrapers/
+        run: |
+          set -euo pipefail
+          allowed="config.json index.ts registry.ts types.ts"
+          extra=""
+          for f in src/lib/scrapers/*; do
+            name=$(basename "$f")
+            case " $allowed " in
+              *" $name "*) ;;
+              *) extra="$extra $name" ;;
+            esac
+          done
+          if [ -n "$extra" ]; then
+            echo "::error::Unexpected file(s) in src/lib/scrapers/:$extra"
+            echo "This repo ships a reference build only — real scraper implementations must not be committed."
+            exit 1
+          fi
+
+      - name: config.json must keep enabled empty
+        run: |
+          set -euo pipefail
+          enabled=$(jq -c '.enabled' src/lib/scrapers/config.json)
+          if [ "$enabled" != "[]" ]; then
+            echo "::error::src/lib/scrapers/config.json has enabled=$enabled — must stay [] in this repo."
+            exit 1
+          fi

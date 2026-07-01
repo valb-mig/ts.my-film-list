@@ -9,3 +9,11 @@
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# Scraper implementations stay local. Only the contract/reference files are
+# tracked; any real ScraperStrategy you add here must not be committed.
+/src/lib/scrapers/*
+!/src/lib/scrapers/config.json
+!/src/lib/scrapers/index.ts
+!/src/lib/scrapers/registry.ts
+!/src/lib/scrapers/types.ts
