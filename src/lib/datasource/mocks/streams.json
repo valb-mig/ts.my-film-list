@@ -1,0 +1,96 @@
+{
+  "tt0000001": [
+    {
+      "source": "MockFlix",
+      "movieUrl": "https://mock.local/movie/a-fenda-escarlate",
+      "kind": "dub",
+      "servers": [
+        { "id": "mock-1", "label": "Servidor 1", "embedUrl": "https://mock.local/embed/tt0000001/1" },
+        { "id": "mock-2", "label": "Servidor 2", "embedUrl": "https://mock.local/embed/tt0000001/2" }
+      ]
+    },
+    {
+      "source": "MockDirect",
+      "movieUrl": "https://mock.local/watch/tt0000001",
+      "kind": "sub",
+      "servers": [
+        { "id": "mock-direct", "label": "MockDirect", "embedUrl": "https://mock.local/direct/tt0000001" }
+      ]
+    }
+  ],
+  "tt0000002": [
+    {
+      "source": "MockFlix",
+      "movieUrl": "https://mock.local/movie/corrida-das-estrelas",
+      "kind": "dub",
+      "servers": [
+        { "id": "mock-1", "label": "Servidor 1", "embedUrl": "https://mock.local/embed/tt0000002/1" }
+      ]
+    },
+    {
+      "source": "MockStream",
+      "movieUrl": "https://mock.local/watch/corrida-das-estrelas",
+      "kind": "dub",
+      "servers": [
+        { "id": "mock-3", "label": "Servidor 3", "embedUrl": "https://mock.local/embed/tt0000002/3" }
+      ]
+    },
+    {
+      "source": "MockDirect",
+      "movieUrl": "https://mock.local/watch/tt0000002",
+      "kind": "sub",
+      "servers": [
+        { "id": "mock-direct", "label": "MockDirect", "embedUrl": "https://mock.local/direct/tt0000002" }
+      ]
+    }
+  ],
+  "tt0000003": [
+    {
+      "source": "MockFlix",
+      "movieUrl": "https://mock.local/movie/risos-na-cozinha",
+      "kind": "dub",
+      "servers": [
+        { "id": "mock-1", "label": "Servidor 1", "embedUrl": "https://mock.local/embed/tt0000003/1" }
+      ]
+    }
+  ],
+  "tt0000004": [
+    {
+      "source": "MockDirect",
+      "movieUrl": "https://mock.local/watch/tt0000004",
+      "kind": "sub",
+      "servers": [
+        { "id": "mock-direct", "label": "MockDirect", "embedUrl": "https://mock.local/direct/tt0000004" }
+      ]
+    }
+  ],
+  "tt0000005": [
+    {
+      "source": "MockFlix",
+      "movieUrl": "https://mock.local/movie/batida-perfeita",
+      "kind": "dub",
+      "servers": [
+        { "id": "mock-1", "label": "Servidor 1", "embedUrl": "https://mock.local/embed/tt0000005/1" },
+        { "id": "mock-2", "label": "Servidor 2", "embedUrl": "https://mock.local/embed/tt0000005/2" }
+      ]
+    }
+  ],
+  "tt0000006": [
+    {
+      "source": "MockStream",
+      "movieUrl": "https://mock.local/watch/reino-de-cinzas",
+      "kind": "dub",
+      "servers": [
+        { "id": "mock-3", "label": "Servidor 3", "embedUrl": "https://mock.local/embed/tt0000006/3" }
+      ]
+    },
+    {
+      "source": "MockDirect",
+      "movieUrl": "https://mock.local/watch/tt0000006",
+      "kind": "sub",
+      "servers": [
+        { "id": "mock-direct", "label": "MockDirect", "embedUrl": "https://mock.local/direct/tt0000006" }
+      ]
+    }
+  ]
+}
