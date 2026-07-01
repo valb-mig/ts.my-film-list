@@ -13,10 +13,16 @@ FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Install playwright browsers + system deps before standalone copy
+COPY --from=deps /app/node_modules ./node_modules
+RUN npx playwright install chromium --with-deps
+
 RUN mkdir -p public
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# Standalone overwrites node_modules with subset — restore full so playwright package is present
+COPY --from=deps /app/node_modules ./node_modules
 
 EXPOSE 3000
 ENV PORT=3000
