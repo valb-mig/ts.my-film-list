@@ -16,12 +16,11 @@ import { isWatchable } from "@/lib/watchable";
 import { randomLoadingMessage } from "@/lib/searchLoadingMessages";
 
 const GENRE_LABELS: Record<string, string> = {
-  Action: "Ação", Adventure: "Aventura", Animation: "Animação", Biography: "Biografia",
+  Action: "Ação", Adventure: "Aventura", Animation: "Animação",
   Comedy: "Comédia", Crime: "Policial", Documentary: "Documentário", Drama: "Drama",
-  Family: "Família", Fantasy: "Fantasia", "Film-Noir": "Filme Noir", "Game-Show": "Game Show",
+  Family: "Família", Fantasy: "Fantasia",
   History: "História", Horror: "Terror", Music: "Musical", Mystery: "Mistério",
-  "Reality-TV": "Reality Show", Romance: "Romance", "Sci-Fi": "Ficção Científica",
-  Short: "Curta-metragem", Sport: "Esportes", "Talk-Show": "Talk Show",
+  Romance: "Romance", "Sci-Fi": "Ficção Científica",
   Thriller: "Suspense", War: "Guerra", Western: "Faroeste",
 };
 

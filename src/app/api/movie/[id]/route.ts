@@ -4,8 +4,8 @@ import { getDataSource } from "@/lib/datasource";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
 
-  if (!id?.match(/^tt\d+$/)) {
-    return NextResponse.json({ error: "Invalid IMDB ID" }, { status: 400 });
+  if (!id?.match(/^tt\d+$/) && !id?.match(/^tmdb-(movie|tv)-\d+$/)) {
+    return NextResponse.json({ error: "Invalid movie id" }, { status: 400 });
   }
 
   try {

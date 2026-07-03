@@ -5,6 +5,7 @@ import type {
   MovieDetail,
   GenreBrowseParams,
   GenreBrowseResult,
+  HomeSection,
 } from "./types";
 import moviesData from "./mocks/movies.json";
 import streamsData from "./mocks/streams.json";
@@ -67,5 +68,46 @@ export class MockDataSource implements MovieDataSource {
 
   async findStreams({ id }: ScraperInput): Promise<StreamResult[]> {
     return delay(STREAMS[id] ?? []);
+  }
+
+  async browseHome(section: HomeSection): Promise<Movie[]> {
+    const toMovie = ({ id, title, year, stars, type, poster }: MockMovie) =>
+      ({ id, title, year, stars, type, poster });
+
+    let sorted: MockMovie[];
+    switch (section) {
+      case "top_rated":
+        sorted = [...MOVIES].sort((a, b) => (b.ratingValue ?? 0) - (a.ratingValue ?? 0));
+        break;
+      case "popular":
+        sorted = [...MOVIES].sort((a, b) => (b.voteCount ?? 0) - (a.voteCount ?? 0));
+        break;
+      case "now_playing":
+        sorted = [...MOVIES].sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+        break;
+      case "trending":
+      default:
+        sorted = MOVIES;
+    }
+
+    return delay(sorted.slice(0, 20).map(toMovie));
+  }
+
+  async getRecommendations(seedImdbIds: string[]): Promise<Movie[]> {
+    if (seedImdbIds.length === 0) return delay([]);
+
+    const seedSet = new Set(seedImdbIds);
+    const seedGenres = new Set(
+      MOVIES.filter((m) => seedSet.has(m.id)).flatMap((m) => m.genres ?? [])
+    );
+    if (seedGenres.size === 0) return delay([]);
+
+    const results = MOVIES
+      .filter((m) => !seedSet.has(m.id) && m.genres?.some((g) => seedGenres.has(g)))
+      .sort((a, b) => (b.ratingValue ?? 0) - (a.ratingValue ?? 0))
+      .slice(0, 20)
+      .map(({ id, title, year, stars, type, poster }) => ({ id, title, year, stars, type, poster }));
+
+    return delay(results);
   }
 }

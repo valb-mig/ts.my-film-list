@@ -15,7 +15,7 @@ interface Props {
   onFavoriteToggle?: (imdbId: string, favorited: boolean) => void;
 }
 
-function SourceAccordion({ stream }: { stream: StreamResult }) {
+function SourceAccordion({ stream, onWatch }: { stream: StreamResult; onWatch: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -37,6 +37,7 @@ function SourceAccordion({ stream }: { stream: StreamResult }) {
           href={s.embedUrl}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={onWatch}
           className="bg-white/[0.04] hover:bg-white/[0.10] border border-white/[0.06] text-[#9a8878] hover:text-[#f0e8dc] text-xs px-3 py-1.5 rounded-xl transition-colors"
         >
           {s.label}
@@ -69,8 +70,12 @@ export default function MovieModal({
   const [saving, setSaving] = useState(false);
   const [favorited, setFavorited] = useState(isFavorited);
   const [favoriting, setFavoriting] = useState(false);
+  // Home-row cards carry a synthetic tmdb-* id (no imdb_id resolved yet, to avoid an extra TMDB
+  // call per card). Real ids resolve immediately; synthetic ones wait for the detail fetch below.
+  const [resolvedId, setResolvedId] = useState<string | null>(() => /^tt\d+$/.test(movie.id) ? movie.id : null);
 
   useEffect(() => { setSaved(isSaved); setFavorited(isFavorited); }, [isSaved, isFavorited, movie.id]);
+  useEffect(() => { setResolvedId(/^tt\d+$/.test(movie.id) ? movie.id : null); }, [movie.id]);
 
   useEffect(() => {
     setLoading(true);
@@ -80,30 +85,35 @@ export default function MovieModal({
       .then((data: MovieDetail & { error?: string }) => {
         if (!data.error) {
           setDetail(data);
+          setResolvedId(data.id);
           if (data.genres?.length) {
-            fetch(`/api/history/movie/${movie.id}`, {
+            fetch(`/api/history/movie/${data.id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ genres: data.genres }),
             }).catch(() => {});
           }
+        } else {
+          // Couldn't resolve a real id (e.g. detail lookup failed) — stop the streams skeleton.
+          setStreamsLoading(false);
         }
       })
-      .catch(() => {})
+      .catch(() => setStreamsLoading(false))
       .finally(() => setLoading(false));
   }, [movie.id]);
 
   useEffect(() => {
+    if (!resolvedId) return;
     setStreamsLoading(true);
     setStreams([]);
-    const params = new URLSearchParams({ id: movie.id, title: movie.title });
+    const params = new URLSearchParams({ id: resolvedId, title: movie.title });
     if (movie.year) params.set("year", String(movie.year));
     fetch(`/api/streams?${params}`)
       .then((r) => r.json())
       .then((data: StreamResult[]) => { if (Array.isArray(data)) setStreams(data); })
       .catch(() => {})
       .finally(() => setStreamsLoading(false));
-  }, [movie.id, movie.title, movie.year]);
+  }, [resolvedId, movie.title, movie.year]);
 
   const handleKey = useCallback((e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }, [onClose]);
   useEffect(() => {
@@ -113,47 +123,58 @@ export default function MovieModal({
   }, [handleKey]);
 
   const handleSaveToggle = useCallback(async () => {
+    if (!resolvedId) return;
     setSaving(true);
     try {
       if (saved) {
-        await fetch(`/api/watchlist/${movie.id}`, { method: "DELETE" });
+        await fetch(`/api/watchlist/${resolvedId}`, { method: "DELETE" });
         setSaved(false);
-        onSaveToggle?.(movie.id, false);
+        onSaveToggle?.(resolvedId, false);
       } else {
         await fetch("/api/watchlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdb_id: movie.id, title: detail?.title ?? movie.title, year: detail?.year ?? movie.year, poster_url: movie.poster, rating: detail?.ratingValue }),
+          body: JSON.stringify({ imdb_id: resolvedId, title: detail?.title ?? movie.title, year: detail?.year ?? movie.year, poster_url: movie.poster, rating: detail?.ratingValue }),
         });
         setSaved(true);
-        onSaveToggle?.(movie.id, true);
+        onSaveToggle?.(resolvedId, true);
       }
     } catch { /* noop */ } finally { setSaving(false); }
-  }, [saved, movie, detail, onSaveToggle]);
+  }, [saved, movie, detail, resolvedId, onSaveToggle]);
 
   const handleFavoriteToggle = useCallback(async () => {
+    if (!resolvedId) return;
     setFavoriting(true);
     try {
       if (favorited) {
-        await fetch(`/api/favorites/${movie.id}`, { method: "DELETE" });
+        await fetch(`/api/favorites/${resolvedId}`, { method: "DELETE" });
         setFavorited(false);
-        onFavoriteToggle?.(movie.id, false);
+        onFavoriteToggle?.(resolvedId, false);
       } else {
         await fetch("/api/favorites", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdb_id: movie.id, title: detail?.title ?? movie.title, year: detail?.year ?? movie.year, poster_url: movie.poster, rating: detail?.ratingValue }),
+          body: JSON.stringify({ imdb_id: resolvedId, title: detail?.title ?? movie.title, year: detail?.year ?? movie.year, poster_url: movie.poster, rating: detail?.ratingValue }),
         });
         setFavorited(true);
-        onFavoriteToggle?.(movie.id, true);
+        onFavoriteToggle?.(resolvedId, true);
       }
     } catch { /* noop */ } finally { setFavoriting(false); }
-  }, [favorited, movie, detail, onFavoriteToggle]);
+  }, [favorited, movie, detail, resolvedId, onFavoriteToggle]);
 
   const title = detail?.title ?? movie.title;
   const year = detail?.year ?? movie.year;
   const duration = detail?.duration ? `${detail.duration}min` : null;
   const poster = movie.poster;
+
+  const handleWatch = useCallback(() => {
+    if (!resolvedId) return;
+    fetch("/api/watched", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imdb_id: resolvedId, title, year, poster_url: poster }),
+    }).catch(() => {});
+  }, [resolvedId, title, year, poster]);
 
   return (
     <div
@@ -193,7 +214,7 @@ export default function MovieModal({
           <div className="flex items-center justify-end gap-2 p-4">
             <button
               onClick={handleFavoriteToggle}
-              disabled={favoriting}
+              disabled={favoriting || !resolvedId}
               className={`p-2 rounded-full transition-all disabled:opacity-50 ${
                 favorited
                   ? "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30"
@@ -212,7 +233,7 @@ export default function MovieModal({
 
             <button
               onClick={handleSaveToggle}
-              disabled={saving}
+              disabled={saving || !resolvedId}
               className={`p-2 rounded-full transition-all disabled:opacity-50 ${
                 saved
                   ? "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30"
@@ -229,14 +250,16 @@ export default function MovieModal({
               </svg>
             </button>
 
-            <a
-              href={`https://www.imdb.com/title/${movie.id}/`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#F5C518] hover:bg-[#e0b315] text-black text-xs font-black px-3 py-1.5 rounded-full transition-colors"
-            >
-              IMDb
-            </a>
+            {resolvedId && (
+              <a
+                href={`https://www.imdb.com/title/${resolvedId}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-[#F5C518] hover:bg-[#e0b315] text-black text-xs font-black px-3 py-1.5 rounded-full transition-colors"
+              >
+                IMDb
+              </a>
+            )}
 
             <button
               onClick={onClose}
@@ -352,7 +375,7 @@ export default function MovieModal({
                   <div className="h-8 w-24 bg-white/[0.06] rounded-xl animate-pulse" />
                 ) : subStreams.length > 0 ? (
                   <div className="flex flex-col gap-2">
-                    {subStreams.map((s) => <SourceAccordion key={s.source} stream={s} />)}
+                    {subStreams.map((s) => <SourceAccordion key={s.source} stream={s} onWatch={handleWatch} />)}
                   </div>
                 ) : (
                   <p className="text-[#5a4e46] text-xs">Não disponível</p>
@@ -367,7 +390,7 @@ export default function MovieModal({
                   <div className="h-8 w-24 bg-white/[0.06] rounded-xl animate-pulse" />
                 ) : dubStreams.length > 0 ? (
                   <div className="flex flex-col gap-2">
-                    {dubStreams.map((s) => <SourceAccordion key={s.source} stream={s} />)}
+                    {dubStreams.map((s) => <SourceAccordion key={s.source} stream={s} onWatch={handleWatch} />)}
                   </div>
                 ) : (
                   <p className="text-[#5a4e46] text-xs">Não disponível</p>

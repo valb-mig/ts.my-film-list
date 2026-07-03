@@ -17,3 +17,6 @@ next-env.d.ts
 !/src/lib/scrapers/index.ts
 !/src/lib/scrapers/registry.ts
 !/src/lib/scrapers/types.ts
+
+# Overlay gerado por scripts/pack-real-scraper.sh — nunca comitar.
+/scraper-overlay.zip

@@ -12,10 +12,11 @@
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 
 Busca filmes e assiste online, direto no navegador.
-Sem cadastro, sem API key.
+Sem cadastro. Metadados via TMDB (API key grátis) — veja "Fontes de dados" abaixo.
 
-> 📦 Este é um **reference build**: só a fonte mock vem implementada. A arquitetura é
-> plugável desde o início — veja "Fontes de dados" abaixo pra ligar uma fonte real.
+> 📦 Este é um **reference build**: metadados vêm do TMDB, mas a camada de streams
+> (`src/lib/scrapers/`) vem vazia. A arquitetura é plugável desde o início — veja
+> "Fontes de dados" abaixo pra ligar uma fonte real de streams.
 
 ## O que faz
 
@@ -37,10 +38,13 @@ Nenhuma fonte é fixa em código — tudo passa por duas camadas plugáveis, con
 
 **1. Metadados (busca, detalhe, gênero)**
 
-`src/lib/datasource/index.ts` resolve a implementação ativa. Hoje só existe `MockDataSource`
-(`mock.ts`), que lê os fixtures estáticos em `src/lib/datasource/mocks/*.json`.
+`src/lib/datasource/index.ts` resolve a implementação ativa. Este build de referência traz
+`MockDataSource` (`mock.ts`, fixtures em `src/lib/datasource/mocks/*.json`) e um exemplo de fonte
+real, `TmdbDataSource` (`tmdb.ts`), que usa a [API do TMDB](https://developer.themoviedb.org/docs)
+pra busca/detalhe/gênero — precisa de `TMDB_ACCESS_TOKEN` (grátis, ver seção abaixo). O IMDb ID de cada
+título é resolvido via TMDB (`/find`, `external_ids`) só pra alimentar a camada de streams abaixo.
 
-Pra ligar uma fonte real: implemente a interface `MovieDataSource` (`src/lib/datasource/types.ts`)
+Pra ligar sua própria fonte: implemente a interface `MovieDataSource` (`src/lib/datasource/types.ts`)
 num arquivo novo e aponte pra ele em `index.ts` (ex: por `process.env.DATA_SOURCE`). Nenhuma rota
 ou componente muda — todos falam com `getDataSource()`, nunca com a implementação direto.
 
@@ -61,8 +65,8 @@ Vem vazio nesse build (`config.json` com `enabled: []`), só com o contrato defi
 cp .env.example .env.local
 ```
 
-`DATA_SOURCE` existe como convenção pra quando você adicionar uma fonte real (ver `index.ts`).
-Sem uma fonte real registrada, o app roda só com mock independente do valor.
+`DATA_SOURCE=mock` força o `MockDataSource`; qualquer outro valor (ou ausente) usa `TmdbDataSource`,
+que exige `TMDB_ACCESS_TOKEN` (crie um gratuito em https://www.themoviedb.org/settings/api).
 
 `.env.local` nunca é commitado.
 

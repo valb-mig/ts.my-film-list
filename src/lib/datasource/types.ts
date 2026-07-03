@@ -33,9 +33,13 @@ export interface GenreBrowseResult {
   sessionReset?: boolean;
 }
 
+export type HomeSection = "trending" | "popular" | "top_rated" | "now_playing";
+
 export interface MovieDataSource {
   search(query: string): Promise<Movie[]>;
   getMovieDetail(id: string): Promise<MovieDetail | null>;
   browseGenre(params: GenreBrowseParams): Promise<GenreBrowseResult>;
   findStreams(input: ScraperInput): Promise<StreamResult[]>;
+  browseHome(section: HomeSection): Promise<Movie[]>;
+  getRecommendations(seedImdbIds: string[]): Promise<Movie[]>;
 }

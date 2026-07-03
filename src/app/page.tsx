@@ -9,7 +9,8 @@ import WatchlistDrawer from "@/components/WatchlistDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
 import DbDrawer from "@/components/DbDrawer";
 import HeroSpotlight from "@/components/HeroSpotlight";
-import SearchHistory from "@/components/SearchHistory";
+import HomeSections from "@/components/HomeSections";
+import ExploredTabs from "@/components/ExploredTabs";
 import RouletteSection from "@/components/RouletteSection";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
@@ -115,8 +116,13 @@ export default function Home() {
       </div>
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <SearchHistory
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-10">
+        <HomeSections
+          watchlistIds={watchlistIds}
+          favoriteIds={favoriteIds}
+          onSelectMovie={setSelectedMovie}
+        />
+        <ExploredTabs
           refreshTrigger={historyTrigger}
           watchlistIds={watchlistIds}
           favoriteIds={favoriteIds}
