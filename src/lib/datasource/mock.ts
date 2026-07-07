@@ -6,6 +6,7 @@ import type {
   GenreBrowseParams,
   GenreBrowseResult,
   HomeSection,
+  MoodBrowseParams,
 } from "./types";
 import moviesData from "./mocks/movies.json";
 import streamsData from "./mocks/streams.json";
@@ -55,12 +56,30 @@ export class MockDataSource implements MovieDataSource {
     });
   }
 
-  async browseGenre({ genre, title = "" }: GenreBrowseParams): Promise<GenreBrowseResult> {
+  async browseGenre({ genre, title = "", minDuration, maxDuration }: GenreBrowseParams): Promise<GenreBrowseResult> {
     const genreKey = genre.toLowerCase();
     const titleFilter = title.toLowerCase().trim();
 
     const movies = MOVIES.filter((m) => m.genres?.some((g) => g.toLowerCase() === genreKey))
       .filter((m) => !titleFilter || m.title.toLowerCase().includes(titleFilter))
+      .filter((m) => minDuration === undefined || (m.duration ?? 0) >= minDuration)
+      .filter((m) => maxDuration === undefined || (m.duration ?? Infinity) <= maxDuration)
+      .map(({ id, title, year, stars, type, poster }) => ({ id, title, year, stars, type, poster }));
+
+    return delay({ movies, hasMore: false, nextStart: movies.length + 1 });
+  }
+
+  async browseMood({ mood, minDuration, maxDuration }: MoodBrowseParams): Promise<GenreBrowseResult> {
+    const genreSet = new Set(mood.genres.map((g) => g.toLowerCase()));
+
+    const movies = MOVIES
+      .filter((m) => m.genres?.some((g) => genreSet.has(g.toLowerCase())))
+      .filter((m) => !mood.yearMin || (m.year ?? 0) >= mood.yearMin)
+      .filter((m) => !mood.yearMax || (m.year ?? 9999) <= mood.yearMax)
+      .filter((m) => !mood.minRating || (m.ratingValue ?? 0) >= mood.minRating)
+      .filter((m) => !mood.minVotes || (m.voteCount ?? 0) >= mood.minVotes)
+      .filter((m) => minDuration === undefined || (m.duration ?? 0) >= minDuration)
+      .filter((m) => maxDuration === undefined || (m.duration ?? Infinity) <= maxDuration)
       .map(({ id, title, year, stars, type, poster }) => ({ id, title, year, stars, type, poster }));
 
     return delay({ movies, hasMore: false, nextStart: movies.length + 1 });

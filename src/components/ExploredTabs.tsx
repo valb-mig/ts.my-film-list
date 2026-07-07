@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Movie } from "@/types/imdb";
 import SearchHistory from "@/components/SearchHistory";
 import ActivityTimeline from "@/components/ActivityTimeline";
+import WatchedList from "@/components/WatchedList";
 
 interface Props {
   refreshTrigger: number;
@@ -13,7 +14,7 @@ interface Props {
 }
 
 export default function ExploredTabs({ refreshTrigger, watchlistIds, favoriteIds, onSelectMovie }: Props) {
-  const [tab, setTab] = useState<"genre" | "timeline">("genre");
+  const [tab, setTab] = useState<"genre" | "timeline" | "watched">("genre");
 
   return (
     <div className="flex flex-col gap-4">
@@ -21,6 +22,7 @@ export default function ExploredTabs({ refreshTrigger, watchlistIds, favoriteIds
         {([
           { key: "genre" as const, label: "Por gênero" },
           { key: "timeline" as const, label: "Linha do tempo" },
+          { key: "watched" as const, label: "Assistidos" },
         ]).map((t) => (
           <button
             key={t.key}
@@ -43,8 +45,10 @@ export default function ExploredTabs({ refreshTrigger, watchlistIds, favoriteIds
           favoriteIds={favoriteIds}
           onSelectMovie={onSelectMovie}
         />
-      ) : (
+      ) : tab === "timeline" ? (
         <ActivityTimeline refreshTrigger={refreshTrigger} onSelectMovie={onSelectMovie} />
+      ) : (
+        <WatchedList refreshTrigger={refreshTrigger} onSelectMovie={onSelectMovie} />
       )}
     </div>
   );

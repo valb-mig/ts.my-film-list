@@ -3,6 +3,12 @@ import { db, ensureInit } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   await ensureInit();
+
+  if (req.nextUrl.searchParams.get("all") === "1") {
+    const result = await db.execute("SELECT * FROM watched ORDER BY watched_at DESC");
+    return NextResponse.json(result.rows);
+  }
+
   const limit = Math.min(50, Math.max(1, Number(req.nextUrl.searchParams.get("limit") ?? "20")));
 
   const result = await db.execute({

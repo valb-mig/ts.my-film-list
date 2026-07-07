@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Movie } from "@/types/imdb";
 import GenreMultiSelect from "@/components/GenreMultiSelect";
+import DurationSelect from "@/components/DurationSelect";
+import { DurationBucket, durationBucketRange } from "@/lib/duration";
 
 interface RouletteMovie {
   imdb_id: string;
@@ -20,6 +22,7 @@ interface Props {
 export default function RouletteSection({ onSelectMovie }: Props) {
   const [genres, setGenres] = useState<string[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<Set<string>>(new Set());
+  const [durationBucket, setDurationBucket] = useState<DurationBucket>("any");
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState<RouletteMovie | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -61,9 +64,14 @@ export default function RouletteSection({ onSelectMovie }: Props) {
     setShowModal(false);
     setError(null);
 
-    const url = selectedGenres.size > 0
-      ? `/api/roulette?genres=${encodeURIComponent(Array.from(selectedGenres).join(","))}`
-      : "/api/roulette";
+    const params = new URLSearchParams();
+    if (selectedGenres.size > 0) params.set("genres", Array.from(selectedGenres).join(","));
+    const { min, max } = durationBucketRange(durationBucket);
+    if (min !== undefined) params.set("minDuration", String(min));
+    if (max !== undefined) params.set("maxDuration", String(max));
+    const query = params.toString();
+    const url = query ? `/api/roulette?${query}` : "/api/roulette";
+    const hasFilter = selectedGenres.size > 0 || durationBucket !== "any";
 
     // Animate wheel
     const extraSpins = 5 + Math.random() * 3;
@@ -93,8 +101,8 @@ export default function RouletteSection({ onSelectMovie }: Props) {
 
     if (!movie || movie.error) {
       setError(
-        selectedGenres.size > 0
-          ? `Nenhum filme nos gêneros selecionados.`
+        hasFilter
+          ? `Nenhum filme encontrado com esses filtros.`
           : "Banco vazio. Pesquise alguns filmes primeiro."
       );
       return;
@@ -136,9 +144,9 @@ export default function RouletteSection({ onSelectMovie }: Props) {
           Gire a roleta e deixe a sorte escolher. Filtre por gênero ou vá no escuro.
         </p>
 
-        {/* Genre filter dropdown */}
+        {/* Filters */}
         {genres.length > 0 && (
-          <div className="mt-6">
+          <div className="mt-6 flex items-center gap-2 flex-wrap justify-center">
             <GenreMultiSelect
               genres={genres}
               selected={selectedGenres}
@@ -146,6 +154,7 @@ export default function RouletteSection({ onSelectMovie }: Props) {
               onClear={() => setSelectedGenres(new Set())}
               label="Gêneros"
             />
+            <DurationSelect value={durationBucket} onChange={setDurationBucket} />
           </div>
         )}
 

@@ -7,6 +7,8 @@ import type {
   GenreBrowseParams,
   GenreBrowseResult,
   HomeSection,
+  MoodBrowseParams,
+  MoodPreset,
 } from "./types";
 
 const API_BASE = "https://api.themoviedb.org/3";
@@ -227,7 +229,7 @@ export class TmdbDataSource implements MovieDataSource {
     };
   }
 
-  async browseGenre({ genre, title = "", start }: GenreBrowseParams): Promise<GenreBrowseResult> {
+  async browseGenre({ genre, title = "", start, minDuration, maxDuration }: GenreBrowseParams): Promise<GenreBrowseResult> {
     const genreIds = GENRE_MAP[genre];
     if (!genreIds) return { movies: [], hasMore: false, nextStart: start };
 
@@ -235,12 +237,21 @@ export class TmdbDataSource implements MovieDataSource {
     const endpointBase = title.trim() ? "/search" : "/discover";
     const query = title.trim();
 
+    // TMDB's runtime filter only exists on /discover/movie — not /search or /discover/tv.
+    const runtimeParams: Record<string, string> = {};
+    if (!query) {
+      if (minDuration) runtimeParams["with_runtime.gte"] = String(minDuration);
+      if (maxDuration) runtimeParams["with_runtime.lte"] = String(maxDuration);
+    }
+
     const [movieData, tvData] = await Promise.all([
       tmdbGet<{ results: TmdbSearchItem[]; total_pages: number }>(`${endpointBase}/movie`, {
         ...(query ? { query } : { with_genres: String(genreIds.movie) }),
+        ...runtimeParams,
         page: String(page),
       }),
-      genreIds.tv
+      // TV has no runtime filter on TMDB — skip it entirely rather than show unfiltered results.
+      genreIds.tv && Object.keys(runtimeParams).length === 0
         ? tmdbGet<{ results: TmdbSearchItem[]; total_pages: number }>(`${endpointBase}/tv`, {
             ...(query ? { query } : { with_genres: String(genreIds.tv) }),
             page: String(page),
@@ -266,6 +277,39 @@ export class TmdbDataSource implements MovieDataSource {
 
     const movies = await withImdbIds(candidates);
     const hasMore = page < movieData.total_pages || page < tvData.total_pages;
+
+    return { movies, hasMore, nextStart: start + PAGE_SIZE };
+  }
+
+  async browseMood({ mood, start, minDuration, maxDuration }: MoodBrowseParams): Promise<GenreBrowseResult> {
+    const genreIds = mood.genres
+      .map((g) => GENRE_MAP[g]?.movie)
+      .filter((id): id is number => id !== undefined);
+    if (genreIds.length === 0) return { movies: [], hasMore: false, nextStart: start };
+
+    const sortMap: Record<NonNullable<MoodPreset["sortBy"]>, string> = {
+      popularity: "popularity.desc",
+      rating: "vote_average.desc",
+      release_date: "primary_release_date.desc",
+    };
+
+    const page = Math.max(1, Math.ceil(start / PAGE_SIZE));
+    const params: Record<string, string> = {
+      with_genres: genreIds.join("|"),
+      sort_by: sortMap[mood.sortBy ?? "popularity"],
+      page: String(page),
+    };
+    if (mood.minRating) params["vote_average.gte"] = String(mood.minRating);
+    if (mood.minVotes) params["vote_count.gte"] = String(mood.minVotes);
+    if (mood.yearMin) params["primary_release_date.gte"] = `${mood.yearMin}-01-01`;
+    if (mood.yearMax) params["primary_release_date.lte"] = `${mood.yearMax}-12-31`;
+    if (minDuration) params["with_runtime.gte"] = String(minDuration);
+    if (maxDuration) params["with_runtime.lte"] = String(maxDuration);
+
+    const data = await tmdbGet<{ results: TmdbSearchItem[]; total_pages: number }>("/discover/movie", params);
+    const candidates = data.results.map((item) => ({ item, mediaType: "movie" as MediaType }));
+    const movies = await withImdbIds(candidates);
+    const hasMore = page < data.total_pages;
 
     return { movies, hasMore, nextStart: start + PAGE_SIZE };
   }

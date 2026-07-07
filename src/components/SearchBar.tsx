@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import GenreSelector from "./GenreSelector";
+import MoodSelector from "./MoodSelector";
 
 interface Props {
   mode: "full" | "text";
@@ -24,6 +25,10 @@ export default function SearchBar({ mode, defaultQuery = "" }: Props) {
     } else {
       router.push("/");
     }
+  };
+
+  const handleMoodSelect = (moodKey: string) => {
+    router.push(`/mood/${encodeURIComponent(moodKey)}`);
   };
 
   const handleTextChange = (value: string) => {
@@ -53,7 +58,10 @@ export default function SearchBar({ mode, defaultQuery = "" }: Props) {
   return (
     <div className="flex items-center gap-2">
       {mode === "full" && (
-        <GenreSelector selected={null} onSelect={handleGenreSelect} />
+        <>
+          <GenreSelector selected={null} onSelect={handleGenreSelect} />
+          <MoodSelector onSelect={handleMoodSelect} />
+        </>
       )}
 
       <div className="relative flex-1">
