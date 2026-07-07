@@ -13,6 +13,22 @@ export async function GET(req: NextRequest) {
   await ensureInit();
   const genresParam = req.nextUrl.searchParams.get("genres");
   const genres = genresParam ? genresParam.split(",").map((g) => g.trim()).filter(Boolean) : [];
+  const minDurationParam = req.nextUrl.searchParams.get("minDuration");
+  const maxDurationParam = req.nextUrl.searchParams.get("maxDuration");
+  const minDuration = minDurationParam ? parseInt(minDurationParam) : undefined;
+  const maxDuration = maxDurationParam ? parseInt(maxDurationParam) : undefined;
+  const hasDurationFilter = minDuration !== undefined || maxDuration !== undefined;
+
+  // Duration only exists for history_movies whose detail the user has already opened —
+  // when filtering by it, watchlist-only titles (no duration on file) are excluded too.
+  const durationCondition = hasDurationFilter
+    ? `AND duration_min IS NOT NULL
+       ${minDuration !== undefined ? "AND duration_min >= ?" : ""}
+       ${maxDuration !== undefined ? "AND duration_min <= ?" : ""}`
+    : "";
+  const durationArgs = hasDurationFilter
+    ? [...(minDuration !== undefined ? [minDuration] : []), ...(maxDuration !== undefined ? [maxDuration] : [])]
+    : [];
 
   let result;
 
@@ -24,11 +40,25 @@ export async function GET(req: NextRequest) {
         FROM history_movies
         WHERE (${genreConditions})
           AND (type IS NULL OR (${typeExclude}))
+          ${durationCondition}
         GROUP BY imdb_id
         ORDER BY RANDOM()
         LIMIT 1
       `,
-      args: [...genres.map((g) => `%"${g}"%`), ...NON_WATCHABLE_TYPES],
+      args: [...genres.map((g) => `%"${g}"%`), ...NON_WATCHABLE_TYPES, ...durationArgs],
+    });
+  } else if (hasDurationFilter) {
+    result = await db.execute({
+      sql: `
+        SELECT imdb_id, title, year, poster_url, type
+        FROM history_movies
+        WHERE (type IS NULL OR (${typeExclude}))
+          ${durationCondition}
+        GROUP BY imdb_id
+        ORDER BY RANDOM()
+        LIMIT 1
+      `,
+      args: [...NON_WATCHABLE_TYPES, ...durationArgs],
     });
   } else {
     result = await db.execute({
@@ -39,7 +69,7 @@ export async function GET(req: NextRequest) {
           WHERE type IS NULL OR (${typeExclude})
           GROUP BY imdb_id
           UNION
-          SELECT imdb_id, title, year, poster_url, NULL as type FROM watchlist
+          SELECT imdb_id, title, year, poster_url, NULL as type FROM list_items
         )
         ORDER BY RANDOM()
         LIMIT 1

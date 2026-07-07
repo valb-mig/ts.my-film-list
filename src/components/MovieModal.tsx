@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { Movie } from "@/types/imdb";
 import { MovieDetail } from "@/lib/datasource";
 import type { StreamResult } from "@/lib/scrapers/types";
+import type { ListInfo } from "@/hooks/useLists";
 
 interface Props {
   movie: Movie;
   onClose: () => void;
-  isSaved?: boolean;
-  onSaveToggle?: (imdbId: string, saved: boolean) => void;
+  lists: ListInfo[];
+  listIdsFor: (imdbId: string) => Set<number>;
+  onAddToList: (listId: number, movie: Movie, rating?: number) => Promise<void>;
+  onRemoveFromList: (listId: number, imdbId: string) => Promise<void>;
+  onCreateList: (name: string) => Promise<ListInfo | null>;
   isFavorited?: boolean;
   onFavoriteToggle?: (imdbId: string, favorited: boolean) => void;
+  isWatched?: boolean;
+  onWatchedToggle?: (imdbId: string, watched: boolean) => void;
 }
 
 function SourceAccordion({ stream, onWatch }: { stream: StreamResult; onWatch: () => void }) {
@@ -58,7 +64,8 @@ function SourceAccordion({ stream, onWatch }: { stream: StreamResult; onWatch: (
 }
 
 export default function MovieModal({
-  movie, onClose, isSaved = false, onSaveToggle, isFavorited = false, onFavoriteToggle,
+  movie, onClose, lists, listIdsFor, onAddToList, onRemoveFromList, onCreateList,
+  isFavorited = false, onFavoriteToggle, isWatched = false, onWatchedToggle,
 }: Props) {
   const [detail, setDetail] = useState<MovieDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,16 +73,32 @@ export default function MovieModal({
   const [streamsLoading, setStreamsLoading] = useState(true);
   const subStreams = streams.filter((s) => s.kind === "sub");
   const dubStreams = streams.filter((s) => s.kind === "dub");
-  const [saved, setSaved] = useState(isSaved);
-  const [saving, setSaving] = useState(false);
   const [favorited, setFavorited] = useState(isFavorited);
   const [favoriting, setFavoriting] = useState(false);
+  const [watched, setWatched] = useState(isWatched);
+  const [markingWatched, setMarkingWatched] = useState(false);
+  const [listsOpen, setListsOpen] = useState(false);
+  const [creatingList, setCreatingList] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [busyListId, setBusyListId] = useState<number | null>(null);
+  const listsPopoverRef = useRef<HTMLDivElement>(null);
   // Home-row cards carry a synthetic tmdb-* id (no imdb_id resolved yet, to avoid an extra TMDB
   // call per card). Real ids resolve immediately; synthetic ones wait for the detail fetch below.
   const [resolvedId, setResolvedId] = useState<string | null>(() => /^tt\d+$/.test(movie.id) ? movie.id : null);
 
-  useEffect(() => { setSaved(isSaved); setFavorited(isFavorited); }, [isSaved, isFavorited, movie.id]);
+  useEffect(() => { setFavorited(isFavorited); setWatched(isWatched); }, [isFavorited, isWatched, movie.id]);
   useEffect(() => { setResolvedId(/^tt\d+$/.test(movie.id) ? movie.id : null); }, [movie.id]);
+
+  useEffect(() => {
+    if (!listsOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (listsPopoverRef.current && !listsPopoverRef.current.contains(e.target as Node)) {
+        setListsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [listsOpen]);
 
   useEffect(() => {
     setLoading(true);
@@ -86,11 +109,11 @@ export default function MovieModal({
         if (!data.error) {
           setDetail(data);
           setResolvedId(data.id);
-          if (data.genres?.length) {
+          if (data.genres?.length || data.duration) {
             fetch(`/api/history/movie/${data.id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ genres: data.genres }),
+              body: JSON.stringify({ genres: data.genres, duration: data.duration }),
             }).catch(() => {});
           }
         } else {
@@ -122,26 +145,6 @@ export default function MovieModal({
     return () => { document.removeEventListener("keydown", handleKey); document.body.style.overflow = ""; };
   }, [handleKey]);
 
-  const handleSaveToggle = useCallback(async () => {
-    if (!resolvedId) return;
-    setSaving(true);
-    try {
-      if (saved) {
-        await fetch(`/api/watchlist/${resolvedId}`, { method: "DELETE" });
-        setSaved(false);
-        onSaveToggle?.(resolvedId, false);
-      } else {
-        await fetch("/api/watchlist", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdb_id: resolvedId, title: detail?.title ?? movie.title, year: detail?.year ?? movie.year, poster_url: movie.poster, rating: detail?.ratingValue }),
-        });
-        setSaved(true);
-        onSaveToggle?.(resolvedId, true);
-      }
-    } catch { /* noop */ } finally { setSaving(false); }
-  }, [saved, movie, detail, resolvedId, onSaveToggle]);
-
   const handleFavoriteToggle = useCallback(async () => {
     if (!resolvedId) return;
     setFavoriting(true);
@@ -166,6 +169,30 @@ export default function MovieModal({
   const year = detail?.year ?? movie.year;
   const duration = detail?.duration ? `${detail.duration}min` : null;
   const poster = movie.poster;
+  const movieListIds = resolvedId ? listIdsFor(resolvedId) : new Set<number>();
+
+  const handleToggleList = useCallback(async (listId: number) => {
+    if (!resolvedId) return;
+    setBusyListId(listId);
+    try {
+      if (movieListIds.has(listId)) {
+        await onRemoveFromList(listId, resolvedId);
+      } else {
+        await onAddToList(listId, { id: resolvedId, title, year, poster }, detail?.ratingValue);
+      }
+    } finally {
+      setBusyListId(null);
+    }
+  }, [resolvedId, movieListIds, onRemoveFromList, onAddToList, title, year, poster, detail]);
+
+  const handleCreateList = useCallback(async () => {
+    const name = newListName.trim();
+    if (!name || !resolvedId) return;
+    const created = await onCreateList(name);
+    setNewListName("");
+    setCreatingList(false);
+    if (created) await onAddToList(created.id, { id: resolvedId, title, year, poster }, detail?.ratingValue);
+  }, [newListName, onCreateList, onAddToList, resolvedId, title, year, poster, detail]);
 
   const handleWatch = useCallback(() => {
     if (!resolvedId) return;
@@ -174,7 +201,29 @@ export default function MovieModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ imdb_id: resolvedId, title, year, poster_url: poster }),
     }).catch(() => {});
-  }, [resolvedId, title, year, poster]);
+    setWatched(true);
+    onWatchedToggle?.(resolvedId, true);
+  }, [resolvedId, title, year, poster, onWatchedToggle]);
+
+  const handleWatchedToggle = useCallback(async () => {
+    if (!resolvedId) return;
+    setMarkingWatched(true);
+    try {
+      if (watched) {
+        await fetch(`/api/watched/${resolvedId}`, { method: "DELETE" });
+        setWatched(false);
+        onWatchedToggle?.(resolvedId, false);
+      } else {
+        await fetch("/api/watched", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imdb_id: resolvedId, title, year, poster_url: poster }),
+        });
+        setWatched(true);
+        onWatchedToggle?.(resolvedId, true);
+      }
+    } catch { /* noop */ } finally { setMarkingWatched(false); }
+  }, [watched, resolvedId, title, year, poster, onWatchedToggle]);
 
   return (
     <div
@@ -213,6 +262,26 @@ export default function MovieModal({
           {/* Action bar */}
           <div className="flex items-center justify-end gap-2 p-4">
             <button
+              onClick={handleWatchedToggle}
+              disabled={markingWatched || !resolvedId}
+              className={`p-2 rounded-full transition-all disabled:opacity-50 ${
+                watched
+                  ? "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30"
+                  : "bg-white/[0.06] text-[#9a8878] hover:bg-white/[0.12] hover:text-[#f0e8dc]"
+              }`}
+              aria-label={watched ? "Desmarcar como assistido" : "Marcar como assistido"}
+              title={watched ? "Assistido" : "Marcar como assistido"}
+            >
+              <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
+                {watched ? (
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                ) : (
+                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8a3 3 0 100 6 3 3 0 000-6z" />
+                )}
+              </svg>
+            </button>
+
+            <button
               onClick={handleFavoriteToggle}
               disabled={favoriting || !resolvedId}
               className={`p-2 rounded-full transition-all disabled:opacity-50 ${
@@ -231,24 +300,89 @@ export default function MovieModal({
               </svg>
             </button>
 
-            <button
-              onClick={handleSaveToggle}
-              disabled={saving || !resolvedId}
-              className={`p-2 rounded-full transition-all disabled:opacity-50 ${
-                saved
-                  ? "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30"
-                  : "bg-white/[0.06] text-[#9a8878] hover:bg-white/[0.12] hover:text-[#f0e8dc]"
-              }`}
-              aria-label={saved ? "Remover da lista" : "Salvar na lista"}
-            >
-              <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
-                {saved ? (
-                  <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" />
-                ) : (
-                  <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z" />
-                )}
-              </svg>
-            </button>
+            <div className="relative" ref={listsPopoverRef}>
+              <button
+                onClick={() => setListsOpen((o) => !o)}
+                disabled={!resolvedId}
+                className={`p-2 rounded-full transition-all disabled:opacity-50 ${
+                  movieListIds.size > 0
+                    ? "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30"
+                    : "bg-white/[0.06] text-[#9a8878] hover:bg-white/[0.12] hover:text-[#f0e8dc]"
+                }`}
+                aria-label="Adicionar às listas"
+                title="Adicionar às listas"
+              >
+                <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
+                  {movieListIds.size > 0 ? (
+                    <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" />
+                  ) : (
+                    <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z" />
+                  )}
+                </svg>
+              </button>
+
+              {listsOpen && (
+                <div
+                  className="absolute top-full right-0 mt-2 z-20 rounded-2xl w-56 p-2"
+                  style={{
+                    background: "rgba(20,18,14,0.98)",
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    boxShadow: "0 20px 60px rgba(0,0,0,0.7)",
+                    backdropFilter: "blur(16px)",
+                  }}
+                >
+                  {lists.length === 0 && (
+                    <p className="text-[#5a4e46] text-xs px-2 py-2">Nenhuma lista ainda</p>
+                  )}
+                  {lists.length > 0 && (
+                    <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto">
+                      {lists.map((l) => {
+                        const checked = movieListIds.has(l.id);
+                        return (
+                          <button
+                            key={l.id}
+                            onClick={() => handleToggleList(l.id)}
+                            disabled={busyListId === l.id}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-left hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+                          >
+                            <span className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                              checked ? "bg-[#d4845a] border-[#d4845a]" : "border-white/20"
+                            }`}>
+                              {checked && (
+                                <svg width="10" height="10" fill="white" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+                              )}
+                            </span>
+                            <span className="text-[#f0e8dc] truncate flex-1">{l.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="border-t border-white/[0.06] mt-1.5 pt-1.5">
+                    {creatingList ? (
+                      <input
+                        autoFocus
+                        type="text"
+                        value={newListName}
+                        onChange={(e) => setNewListName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleCreateList(); if (e.key === "Escape") setCreatingList(false); }}
+                        onBlur={handleCreateList}
+                        placeholder="Nome da lista"
+                        className="w-full bg-white/[0.06] text-[#f0e8dc] placeholder-[#5a4e46] text-xs px-2.5 py-1.5 rounded-lg outline-none border border-[#d4845a]/40"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setCreatingList(true)}
+                        className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-colors"
+                      >
+                        + Nova lista
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {resolvedId && (
               <a

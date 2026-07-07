@@ -19,7 +19,7 @@ export async function GET() {
     WITH all_ids AS (
       SELECT DISTINCT imdb_id FROM history_movies
       UNION
-      SELECT DISTINCT imdb_id FROM watchlist
+      SELECT DISTINCT imdb_id FROM list_items
     ),
     latest_history AS (
       SELECT hm.imdb_id, hm.title, hm.year, hm.poster_url, hm.type
@@ -29,6 +29,11 @@ export async function GET() {
         FROM history_movies
         GROUP BY imdb_id
       ) lh ON hm.imdb_id = lh.imdb_id AND hm.history_id = lh.max_hid
+    ),
+    latest_list_item AS (
+      SELECT li.imdb_id, li.title, li.year, li.poster_url, MAX(li.added_at) AS added_at
+      FROM list_items li
+      GROUP BY li.imdb_id
     )
     SELECT
       ai.imdb_id,
@@ -41,7 +46,7 @@ export async function GET() {
       COALESCE(w.added_at, 0) AS added_at
     FROM all_ids ai
     LEFT JOIN latest_history lh ON lh.imdb_id = ai.imdb_id
-    LEFT JOIN watchlist      w  ON w.imdb_id  = ai.imdb_id
+    LEFT JOIN latest_list_item w ON w.imdb_id  = ai.imdb_id
     ORDER BY COALESCE(w.added_at, 0) DESC, ai.imdb_id
   `);
 

@@ -34,12 +34,3 @@ export interface FavoriteItem {
   rating?: number;
   added_at: number;
 }
-
-export interface WatchlistItem {
-  imdb_id: string;
-  title: string;
-  year?: number;
-  poster_url?: string;
-  rating?: number;
-  added_at: number;
-}

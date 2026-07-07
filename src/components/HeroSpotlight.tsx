@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
-import { Movie, WatchlistItem } from "@/types/imdb";
+import { Movie } from "@/types/imdb";
 import { MovieDetail } from "@/lib/datasource";
 import { isWatchable } from "@/lib/watchable";
+import type { ListInfo } from "@/hooks/useLists";
 
 interface FeaturedMovie {
   id: string;
@@ -13,14 +14,24 @@ interface FeaturedMovie {
   poster?: string;
 }
 
+interface ListItemRow {
+  imdb_id: string;
+  title: string;
+  year?: number;
+  poster_url?: string;
+}
+
 interface Props {
   watchlistIds: Set<string>;
-  onSaveToggle: (id: string, saved: boolean) => void;
+  lists: ListInfo[];
+  onAddToList: (listId: number, movie: Movie, rating?: number) => Promise<void>;
+  onRemoveFromList: (listId: number, imdbId: string) => Promise<void>;
+  onCreateList: (name: string) => Promise<ListInfo | null>;
   onSelectMovie: (movie: Movie) => void;
   refreshTrigger: number;
 }
 
-export default function HeroSpotlight({ watchlistIds, onSaveToggle, onSelectMovie, refreshTrigger }: Props) {
+export default function HeroSpotlight({ watchlistIds, lists, onAddToList, onRemoveFromList, onCreateList, onSelectMovie, refreshTrigger }: Props) {
   const [featured, setFeatured] = useState<FeaturedMovie | null>(null);
   const [detail, setDetail] = useState<MovieDetail | null>(null);
   const [saving, setSaving] = useState(false);
@@ -64,8 +75,8 @@ export default function HeroSpotlight({ watchlistIds, onSaveToggle, onSelectMovi
   const fetchFeatured = useCallback(async () => {
     setLoading(true);
     try {
-      const wlRes = await fetch("/api/watchlist");
-      const wlItems: WatchlistItem[] = await wlRes.json();
+      const wlRes = await fetch("/api/lists/items");
+      const wlItems: ListItemRow[] = await wlRes.json();
       if (wlItems.length > 0) {
         const w = wlItems[0];
         setFeatured({ id: w.imdb_id, title: w.title, year: w.year, poster: w.poster_url });
@@ -97,30 +108,29 @@ export default function HeroSpotlight({ watchlistIds, onSaveToggle, onSelectMovi
       .catch(() => {});
   }, [featured?.id]);
 
+  // Quick-save from the hero always targets the default (first-created) list — the modal's
+  // list picker is the place to manage multiple lists per movie.
   const handleSave = useCallback(async () => {
     if (!featured) return;
     setSaving(true);
     const isSaved = watchlistIds.has(featured.id);
     try {
+      const defaultList = lists[0] ?? (await onCreateList("Minha Lista"));
+      if (!defaultList) return;
+      const movie: Movie = { id: featured.id, title: detail?.title ?? featured.title, year: detail?.year ?? featured.year, poster: featured.poster };
       if (isSaved) {
-        await fetch(`/api/watchlist/${featured.id}`, { method: "DELETE" });
-        onSaveToggle(featured.id, false);
+        await onRemoveFromList(defaultList.id, featured.id);
       } else {
-        await fetch("/api/watchlist", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdb_id: featured.id, title: detail?.title ?? featured.title, year: detail?.year ?? featured.year, poster_url: featured.poster, rating: detail?.ratingValue }),
-        });
-        onSaveToggle(featured.id, true);
+        await onAddToList(defaultList.id, movie, detail?.ratingValue);
       }
     } catch { /* noop */ } finally { setSaving(false); }
-  }, [featured, watchlistIds, detail, onSaveToggle]);
+  }, [featured, watchlistIds, detail, lists, onAddToList, onRemoveFromList, onCreateList]);
 
   if (!loading && !featured) return null;
 
   if (loading || !featured) {
     return (
-      <section className="relative h-screen w-full bg-[#0a0906] flex items-center justify-center">
+      <section className="relative -mt-[68px] h-screen w-full bg-[#0a0906] flex items-center justify-center">
         <div className="animate-pulse flex flex-col items-start gap-4 px-16 w-full max-w-7xl">
           <div className="h-5 w-24 bg-white/[0.06] rounded" />
           <div className="h-4 w-48 bg-white/[0.06] rounded" />
@@ -147,7 +157,7 @@ export default function HeroSpotlight({ watchlistIds, onSaveToggle, onSelectMovi
 
   return (
     <section
-      className="relative h-screen w-full overflow-hidden"
+      className="relative -mt-[68px] h-screen w-full overflow-hidden"
       onMouseMove={handleSectionMouseMove}
       onMouseLeave={handleSectionMouseLeave}
     >

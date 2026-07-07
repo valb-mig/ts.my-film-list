@@ -3,17 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 
 export function useCollections() {
-  const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set());
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-
-  const fetchWatchlist = useCallback(() => {
-    fetch("/api/watchlist")
-      .then((r) => r.json())
-      .then((items: { imdb_id: string }[]) =>
-        setWatchlistIds(new Set(items.map((i) => i.imdb_id)))
-      )
-      .catch(() => {});
-  }, []);
+  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
 
   const fetchFavorites = useCallback(() => {
     fetch("/api/favorites")
@@ -24,19 +15,19 @@ export function useCollections() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    fetchWatchlist();
-    fetchFavorites();
-  }, [fetchWatchlist, fetchFavorites]);
-
-  const handleSaveToggle = useCallback((imdbId: string, saved: boolean) => {
-    setWatchlistIds((prev) => {
-      const next = new Set(prev);
-      if (saved) next.add(imdbId);
-      else next.delete(imdbId);
-      return next;
-    });
+  const fetchWatched = useCallback(() => {
+    fetch("/api/watched?all=1")
+      .then((r) => r.json())
+      .then((items: { imdb_id: string }[]) =>
+        setWatchedIds(new Set(items.map((i) => i.imdb_id)))
+      )
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchFavorites();
+    fetchWatched();
+  }, [fetchFavorites, fetchWatched]);
 
   const handleFavoriteToggle = useCallback((imdbId: string, fav: boolean) => {
     setFavoriteIds((prev) => {
@@ -47,12 +38,21 @@ export function useCollections() {
     });
   }, []);
 
+  const handleWatchedToggle = useCallback((imdbId: string, watched: boolean) => {
+    setWatchedIds((prev) => {
+      const next = new Set(prev);
+      if (watched) next.add(imdbId);
+      else next.delete(imdbId);
+      return next;
+    });
+  }, []);
+
   return {
-    watchlistIds,
     favoriteIds,
-    handleSaveToggle,
+    watchedIds,
     handleFavoriteToggle,
-    refreshWatchlist: fetchWatchlist,
+    handleWatchedToggle,
     refreshFavorites: fetchFavorites,
+    refreshWatched: fetchWatched,
   };
 }

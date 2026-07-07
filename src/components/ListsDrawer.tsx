@@ -1,40 +1,64 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Image from "next/image";
-import { WatchlistItem, Movie } from "@/types/imdb";
+import { Movie } from "@/types/imdb";
 import { useChunkedList } from "@/lib/useChunkedList";
+import { ListInfo } from "@/hooks/useLists";
+
+interface ListItem {
+  imdb_id: string;
+  title: string;
+  year?: number;
+  poster_url?: string;
+  rating?: number;
+}
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSelectMovie: (movie: Movie) => void;
-  onRemove: (imdbId: string) => void;
+  lists: ListInfo[];
+  createList: (name: string) => Promise<ListInfo | null>;
+  renameList: (listId: number, name: string) => Promise<void>;
+  deleteList: (listId: number) => Promise<void>;
+  removeFromList: (listId: number, imdbId: string) => Promise<void>;
 }
 
-export default function WatchlistDrawer({ open, onClose, onSelectMovie, onRemove }: Props) {
-  const [items, setItems] = useState<WatchlistItem[]>([]);
+export default function ListsDrawer({
+  open, onClose, onSelectMovie, lists, createList, renameList, deleteList, removeFromList,
+}: Props) {
+  const [activeListId, setActiveListId] = useState<number | null>(null);
+  const [items, setItems] = useState<ListItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const touchStartY = useRef(0);
   const [translateY, setTranslateY] = useState(0);
   const isDragging = useRef(false);
 
-  const fetchItems = useCallback(() => {
+  useEffect(() => {
+    if (!open) return;
+    setTranslateY(0);
+    setActiveListId((prev) => (prev !== null && lists.some((l) => l.id === prev) ? prev : lists[0]?.id ?? null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const fetchItems = useCallback((listId: number) => {
     setLoading(true);
-    fetch("/api/watchlist")
+    fetch(`/api/lists/${listId}/items`)
       .then((r) => r.json())
       .then(setItems)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { if (open) { fetchItems(); setTranslateY(0); } }, [open, fetchItems]);
-
-  const handleRemove = useCallback(async (imdbId: string) => {
-    await fetch(`/api/watchlist/${imdbId}`, { method: "DELETE" });
-    setItems((prev) => prev.filter((i) => i.imdb_id !== imdbId));
-    onRemove(imdbId);
-  }, [onRemove]);
+  useEffect(() => {
+    if (open && activeListId !== null) fetchItems(activeListId);
+    else setItems([]);
+  }, [open, activeListId, fetchItems]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,6 +67,38 @@ export default function WatchlistDrawer({ open, onClose, onSelectMovie, onRemove
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", handleKey); document.body.style.overflow = ""; };
   }, [open, onClose]);
+
+  const activeList = useMemo(() => lists.find((l) => l.id === activeListId) ?? null, [lists, activeListId]);
+
+  const handleCreate = useCallback(async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const created = await createList(name);
+    setNewName("");
+    setCreating(false);
+    if (created) setActiveListId(created.id);
+  }, [newName, createList]);
+
+  const handleRenameSave = useCallback(async () => {
+    const name = renameValue.trim();
+    if (renamingId !== null && name) await renameList(renamingId, name);
+    setRenamingId(null);
+  }, [renamingId, renameValue, renameList]);
+
+  const handleDelete = useCallback(async (listId: number) => {
+    if (!window.confirm("Excluir essa lista? Os filmes salvos nela serão removidos.")) return;
+    await deleteList(listId);
+    if (activeListId === listId) {
+      const remaining = lists.filter((l) => l.id !== listId);
+      setActiveListId(remaining[0]?.id ?? null);
+    }
+  }, [deleteList, activeListId, lists]);
+
+  const handleRemove = useCallback(async (imdbId: string) => {
+    if (activeListId === null) return;
+    await removeFromList(activeListId, imdbId);
+    setItems((prev) => prev.filter((i) => i.imdb_id !== imdbId));
+  }, [activeListId, removeFromList]);
 
   const { visible, hasMore: hasMoreVisible, sentinelRef } = useChunkedList(items, 30);
 
@@ -78,19 +134,12 @@ export default function WatchlistDrawer({ open, onClose, onSelectMovie, onRemove
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Drag handle */}
         <div className="flex justify-center pt-3 pb-1 shrink-0">
           <div className="w-10 h-1 rounded-full bg-white/20" />
         </div>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 shrink-0 border-b border-white/[0.06]">
-          <div>
-            <h2 className="text-[#f0e8dc] font-black text-xl">Minha Lista</h2>
-            {!loading && (
-              <p className="text-[#5a4e46] text-xs mt-0.5">{items.length} {items.length === 1 ? "filme" : "filmes"}</p>
-            )}
-          </div>
+          <h2 className="text-[#f0e8dc] font-black text-xl">Minhas Listas</h2>
           <button onClick={onClose} className="p-2 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-[#9a8878] hover:text-[#f0e8dc] transition-colors">
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
               <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -98,9 +147,88 @@ export default function WatchlistDrawer({ open, onClose, onSelectMovie, onRemove
           </button>
         </div>
 
-        {/* List */}
+        {/* List chips */}
+        <div className="shrink-0 flex gap-1.5 px-4 pt-3 pb-2 overflow-x-auto scrollbar-hide">
+          {lists.map((l) => (
+            <button
+              key={l.id}
+              onClick={() => setActiveListId(l.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                activeListId === l.id
+                  ? "bg-[#d4845a] text-white"
+                  : "bg-white/[0.05] text-[#9a8878] hover:text-[#f0e8dc] border border-white/[0.06]"
+              }`}
+            >
+              {l.name}
+              <span className={activeListId === l.id ? "text-white/70" : "text-[#5a4e46]"}>{l.count}</span>
+            </button>
+          ))}
+
+          {creating ? (
+            <div className="flex items-center gap-1 shrink-0">
+              <input
+                autoFocus
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); }}
+                onBlur={handleCreate}
+                placeholder="Nome da lista"
+                className="bg-white/[0.06] text-[#f0e8dc] placeholder-[#5a4e46] text-xs px-2.5 py-1.5 rounded-full outline-none border border-[#d4845a]/40 w-32"
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => setCreating(true)}
+              className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-white/[0.05] text-[#9a8878] hover:text-[#f0e8dc] border border-dashed border-white/[0.14] transition-all"
+            >
+              + Nova
+            </button>
+          )}
+        </div>
+
+        {/* Active list actions */}
+        {activeList && (
+          <div className="shrink-0 flex items-center gap-2 px-6 pb-2">
+            {renamingId === activeList.id ? (
+              <input
+                autoFocus
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleRenameSave(); if (e.key === "Escape") setRenamingId(null); }}
+                onBlur={handleRenameSave}
+                className="bg-white/[0.06] text-[#f0e8dc] text-xs px-2 py-1 rounded-lg outline-none border border-[#d4845a]/40"
+              />
+            ) : (
+              <button
+                onClick={() => { setRenamingId(activeList.id); setRenameValue(activeList.name); }}
+                className="text-[#5a4e46] hover:text-[#9a8878] text-[10px] font-medium flex items-center gap-1 transition-colors"
+              >
+                <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+                Renomear
+              </button>
+            )}
+            <button
+              onClick={() => handleDelete(activeList.id)}
+              className="text-[#5a4e46] hover:text-[#d4845a] text-[10px] font-medium flex items-center gap-1 transition-colors"
+            >
+              <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
+              Excluir lista
+            </button>
+          </div>
+        )}
+
+        {/* Items */}
         <div className="flex-1 overflow-y-auto p-4">
-          {loading && (
+          {!activeList && (
+            <div className="flex flex-col items-center justify-center h-48 text-center">
+              <p className="text-[#5a4e46] text-sm">Nenhuma lista ainda</p>
+              <p className="text-[#5a4e46]/60 text-xs mt-1">Crie uma lista pra começar a salvar filmes</p>
+            </div>
+          )}
+
+          {activeList && loading && (
             <div className="flex flex-col gap-3">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="flex gap-3 animate-pulse">
@@ -114,14 +242,14 @@ export default function WatchlistDrawer({ open, onClose, onSelectMovie, onRemove
             </div>
           )}
 
-          {!loading && items.length === 0 && (
+          {activeList && !loading && items.length === 0 && (
             <div className="flex flex-col items-center justify-center h-48 text-center">
               <p className="text-[#5a4e46] text-sm">Lista vazia</p>
               <p className="text-[#5a4e46]/60 text-xs mt-1">Salve filmes para ver aqui</p>
             </div>
           )}
 
-          {!loading && items.length > 0 && (
+          {activeList && !loading && items.length > 0 && (
             <div className="flex flex-col gap-2">
               {visible.map((item) => {
                 const movie: Movie = { id: item.imdb_id, title: item.title, year: item.year, poster: item.poster_url ?? undefined };

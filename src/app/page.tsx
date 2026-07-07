@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import MovieModal from "@/components/MovieModal";
-import WatchlistDrawer from "@/components/WatchlistDrawer";
+import ListsDrawer from "@/components/ListsDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
 import DbDrawer from "@/components/DbDrawer";
 import HeroSpotlight from "@/components/HeroSpotlight";
@@ -14,6 +14,7 @@ import ExploredTabs from "@/components/ExploredTabs";
 import RouletteSection from "@/components/RouletteSection";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
+import { useLists } from "@/hooks/useLists";
 
 export default function Home() {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
@@ -22,17 +23,25 @@ export default function Home() {
   const [dbDrawerOpen, setDbDrawerOpen] = useState(false);
   const [historyTrigger, setHistoryTrigger] = useState(0);
 
-  const {
-    watchlistIds,
-    favoriteIds,
-    handleSaveToggle: baseSaveToggle,
-    handleFavoriteToggle,
-  } = useCollections();
+  const { favoriteIds, watchedIds, handleFavoriteToggle, handleWatchedToggle: baseWatchedToggle } = useCollections();
+  const { lists, membership, listIdsFor, createList, renameList, deleteList, addToList: baseAddToList, removeFromList: baseRemoveFromList } = useLists();
 
-  const handleSaveToggle = useCallback((imdbId: string, saved: boolean) => {
-    baseSaveToggle(imdbId, saved);
+  const watchlistIds = useMemo(() => new Set(membership.keys()), [membership]);
+
+  const addToList = useCallback(async (listId: number, movie: Movie, rating?: number) => {
+    await baseAddToList(listId, movie, rating);
     setHistoryTrigger((t) => t + 1);
-  }, [baseSaveToggle]);
+  }, [baseAddToList]);
+
+  const removeFromList = useCallback(async (listId: number, imdbId: string) => {
+    await baseRemoveFromList(listId, imdbId);
+    setHistoryTrigger((t) => t + 1);
+  }, [baseRemoveFromList]);
+
+  const handleWatchedToggle = useCallback((imdbId: string, watched: boolean) => {
+    baseWatchedToggle(imdbId, watched);
+    setHistoryTrigger((t) => t + 1);
+  }, [baseWatchedToggle]);
 
   return (
     <div className="min-h-screen bg-[#0a0906]">
@@ -106,14 +115,15 @@ export default function Home() {
       </header>
 
       {/* Hero */}
-      <div className="-mt-[68px]">
-        <HeroSpotlight
-          watchlistIds={watchlistIds}
-          onSaveToggle={handleSaveToggle}
-          onSelectMovie={setSelectedMovie}
-          refreshTrigger={historyTrigger}
-        />
-      </div>
+      <HeroSpotlight
+        watchlistIds={watchlistIds}
+        lists={lists}
+        onAddToList={addToList}
+        onRemoveFromList={removeFromList}
+        onCreateList={createList}
+        onSelectMovie={setSelectedMovie}
+        refreshTrigger={historyTrigger}
+      />
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-10">
@@ -136,10 +146,15 @@ export default function Home() {
         <MovieModal
           movie={selectedMovie}
           onClose={() => setSelectedMovie(null)}
-          isSaved={watchlistIds.has(selectedMovie.id)}
-          onSaveToggle={handleSaveToggle}
+          lists={lists}
+          listIdsFor={listIdsFor}
+          onAddToList={addToList}
+          onRemoveFromList={removeFromList}
+          onCreateList={createList}
           isFavorited={favoriteIds.has(selectedMovie.id)}
           onFavoriteToggle={handleFavoriteToggle}
+          isWatched={watchedIds.has(selectedMovie.id)}
+          onWatchedToggle={handleWatchedToggle}
         />
       )}
 
@@ -150,11 +165,15 @@ export default function Home() {
         onRemove={(id) => handleFavoriteToggle(id, false)}
       />
 
-      <WatchlistDrawer
+      <ListsDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onSelectMovie={setSelectedMovie}
-        onRemove={(id) => handleSaveToggle(id, false)}
+        lists={lists}
+        createList={createList}
+        renameList={renameList}
+        deleteList={deleteList}
+        removeFromList={removeFromList}
       />
 
       <DbDrawer

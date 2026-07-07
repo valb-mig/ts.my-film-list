@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import MovieCard from "@/components/MovieCard";
 import MovieModal from "@/components/MovieModal";
-import WatchlistDrawer from "@/components/WatchlistDrawer";
+import ListsDrawer from "@/components/ListsDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
 import DbDrawer from "@/components/DbDrawer";
 import NonWatchableAccordion from "@/components/NonWatchableAccordion";
+import DurationSelect from "@/components/DurationSelect";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
+import { useLists } from "@/hooks/useLists";
 import { isWatchable } from "@/lib/watchable";
 import { randomLoadingMessage } from "@/lib/searchLoadingMessages";
+import { DurationBucket, durationBucketRange } from "@/lib/duration";
 
 const GENRE_LABELS: Record<string, string> = {
   Action: "Ação", Adventure: "Aventura", Animation: "Animação",
@@ -39,14 +42,26 @@ export default function GenrePage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
   const [dbDrawerOpen, setDbDrawerOpen] = useState(false);
+  const [durationBucket, setDurationBucket] = useState<DurationBucket>("any");
 
-  const { watchlistIds, favoriteIds, handleSaveToggle, handleFavoriteToggle } = useCollections();
+  const { favoriteIds, watchedIds, handleFavoriteToggle, handleWatchedToggle } = useCollections();
+  const { lists, membership, listIdsFor, createList, renameList, deleteList, addToList, removeFromList } = useLists();
+  const watchlistIds = useMemo(() => new Set(membership.keys()), [membership]);
+
+  const durationParams = useCallback(() => {
+    const { min, max } = durationBucketRange(durationBucket);
+    const params = new URLSearchParams();
+    if (min !== undefined) params.set("minDuration", String(min));
+    if (max !== undefined) params.set("maxDuration", String(max));
+    return params.toString();
+  }, [durationBucket]);
 
   const fetchMovies = useCallback(async () => {
     setLoadingMessage(randomLoadingMessage());
     setLoading(true);
     try {
-      const res = await fetch(`/api/genre?genre=${encodeURIComponent(genre)}`);
+      const extra = durationParams();
+      const res = await fetch(`/api/genre?genre=${encodeURIComponent(genre)}${extra ? `&${extra}` : ""}`);
       const data = await res.json();
       const results: Movie[] = data.movies ?? [];
       setMovies(results);
@@ -65,7 +80,7 @@ export default function GenrePage() {
     } finally {
       setLoading(false);
     }
-  }, [genre]);
+  }, [genre, durationParams]);
 
   useEffect(() => { fetchMovies(); }, [fetchMovies]);
 
@@ -73,7 +88,8 @@ export default function GenrePage() {
     if (!hasMore || loadingMore) return;
     setLoadingMore(true);
     try {
-      const res = await fetch(`/api/genre?genre=${encodeURIComponent(genre)}&start=${nextStart}`);
+      const extra = durationParams();
+      const res = await fetch(`/api/genre?genre=${encodeURIComponent(genre)}&start=${nextStart}${extra ? `&${extra}` : ""}`);
       const data = await res.json();
       const newMovies: Movie[] = data.movies ?? [];
       if (data.sessionReset) {
@@ -136,6 +152,10 @@ export default function GenrePage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <div className="mb-6">
+          <DurationSelect value={durationBucket} onChange={setDurationBucket} />
+        </div>
+
         {/* Loading */}
         {loading && (
           <div className="flex items-center gap-3 text-[#9a8878]">
@@ -147,6 +167,9 @@ export default function GenrePage() {
         {!loading && movies.length === 0 && (
           <div className="flex flex-col items-center justify-center h-[60vh] text-center">
             <p className="text-[#5a4e46] text-lg">Nenhum resultado encontrado</p>
+            {durationBucket !== "any" && (
+              <p className="text-[#5a4e46]/60 text-sm mt-2">Tente outra faixa de duração</p>
+            )}
           </div>
         )}
 
@@ -219,15 +242,29 @@ export default function GenrePage() {
         <MovieModal
           movie={selectedMovie}
           onClose={() => setSelectedMovie(null)}
-          isSaved={watchlistIds.has(selectedMovie.id)}
-          onSaveToggle={handleSaveToggle}
+          lists={lists}
+          listIdsFor={listIdsFor}
+          onAddToList={addToList}
+          onRemoveFromList={removeFromList}
+          onCreateList={createList}
           isFavorited={favoriteIds.has(selectedMovie.id)}
           onFavoriteToggle={handleFavoriteToggle}
+          isWatched={watchedIds.has(selectedMovie.id)}
+          onWatchedToggle={handleWatchedToggle}
         />
       )}
 
       <FavoritesDrawer open={favoritesDrawerOpen} onClose={() => setFavoritesDrawerOpen(false)} onSelectMovie={setSelectedMovie} onRemove={(id) => handleFavoriteToggle(id, false)} />
-      <WatchlistDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelectMovie={setSelectedMovie} onRemove={(id) => handleSaveToggle(id, false)} />
+      <ListsDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSelectMovie={setSelectedMovie}
+        lists={lists}
+        createList={createList}
+        renameList={renameList}
+        deleteList={deleteList}
+        removeFromList={removeFromList}
+      />
       <DbDrawer open={dbDrawerOpen} onClose={() => setDbDrawerOpen(false)} onSelectMovie={setSelectedMovie} />
     </div>
   );

@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MovieCard from "@/components/MovieCard";
 import MovieModal from "@/components/MovieModal";
-import WatchlistDrawer from "@/components/WatchlistDrawer";
+import ListsDrawer from "@/components/ListsDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
 import DbDrawer from "@/components/DbDrawer";
 import SearchBar from "@/components/SearchBar";
 import NonWatchableAccordion from "@/components/NonWatchableAccordion";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
+import { useLists } from "@/hooks/useLists";
 import { isWatchable } from "@/lib/watchable";
 import { randomLoadingMessage } from "@/lib/searchLoadingMessages";
 
@@ -28,7 +29,9 @@ function SearchResults() {
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
   const [dbDrawerOpen, setDbDrawerOpen] = useState(false);
 
-  const { watchlistIds, favoriteIds, handleSaveToggle, handleFavoriteToggle } = useCollections();
+  const { favoriteIds, watchedIds, handleFavoriteToggle, handleWatchedToggle } = useCollections();
+  const { lists, membership, listIdsFor, createList, renameList, deleteList, addToList, removeFromList } = useLists();
+  const watchlistIds = useMemo(() => new Set(membership.keys()), [membership]);
 
   const fetchMovies = useCallback(async (query: string) => {
     if (!query.trim()) { setMovies([]); return; }
@@ -169,15 +172,29 @@ function SearchResults() {
         <MovieModal
           movie={selectedMovie}
           onClose={() => setSelectedMovie(null)}
-          isSaved={watchlistIds.has(selectedMovie.id)}
-          onSaveToggle={handleSaveToggle}
+          lists={lists}
+          listIdsFor={listIdsFor}
+          onAddToList={addToList}
+          onRemoveFromList={removeFromList}
+          onCreateList={createList}
           isFavorited={favoriteIds.has(selectedMovie.id)}
           onFavoriteToggle={handleFavoriteToggle}
+          isWatched={watchedIds.has(selectedMovie.id)}
+          onWatchedToggle={handleWatchedToggle}
         />
       )}
 
       <FavoritesDrawer open={favoritesDrawerOpen} onClose={() => setFavoritesDrawerOpen(false)} onSelectMovie={setSelectedMovie} onRemove={(id) => handleFavoriteToggle(id, false)} />
-      <WatchlistDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSelectMovie={setSelectedMovie} onRemove={(id) => handleSaveToggle(id, false)} />
+      <ListsDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSelectMovie={setSelectedMovie}
+        lists={lists}
+        createList={createList}
+        renameList={renameList}
+        deleteList={deleteList}
+        removeFromList={removeFromList}
+      />
       <DbDrawer open={dbDrawerOpen} onClose={() => setDbDrawerOpen(false)} onSelectMovie={setSelectedMovie} />
     </div>
   );
