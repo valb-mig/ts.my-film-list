@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getDataSource } from "@/lib/datasource";
 import { db, ensureInit } from "@/lib/db";

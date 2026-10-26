@@ -2,6 +2,7 @@
 /data
 /htmldata
 /.next/
+/.next-prod/
 /out/
 .DS_Store
 *.pem
