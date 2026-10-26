@@ -7,6 +7,7 @@ import SearchBar from "@/components/SearchBar";
 import MovieModal from "@/components/MovieModal";
 import ListsDrawer from "@/components/ListsDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
+import SubtitleSettingsModal from "@/components/SubtitleSettingsModal";
 import HeroSpotlight from "@/components/HeroSpotlight";
 import HomeSections from "@/components/HomeSections";
 import RouletteSection from "@/components/RouletteSection";
@@ -18,6 +19,7 @@ export default function Home() {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
+  const [subtitleSettingsOpen, setSubtitleSettingsOpen] = useState(false);
   const [listsTrigger, setListsTrigger] = useState(0);
 
   const { favoriteIds, handleFavoriteToggle } = useCollections();
@@ -60,6 +62,17 @@ export default function Home() {
 
           {/* Collection buttons */}
           <div className="flex items-center gap-1 sm:gap-2 ml-auto">
+            <button
+              onClick={() => setSubtitleSettingsOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-all text-xs font-medium"
+              aria-label="Configurações de legenda"
+            >
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z" />
+              </svg>
+              <span className="hidden sm:block">Legendas</span>
+            </button>
+
             <button
               onClick={() => setFavoritesDrawerOpen(true)}
               className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-all text-xs font-medium"
@@ -148,6 +161,8 @@ export default function Home() {
         deleteList={deleteList}
         removeFromList={removeFromList}
       />
+
+      <SubtitleSettingsModal open={subtitleSettingsOpen} onClose={() => setSubtitleSettingsOpen(false)} />
     </div>
   );
 }
