@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
@@ -14,8 +14,12 @@ import RouletteSection from "@/components/RouletteSection";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
 import { useLists } from "@/hooks/useLists";
+import { isTvMode } from "@/lib/tvMode";
 
 export default function Home() {
+  // On a TV (projector hub, ?tv=1) the remote-friendly version is the one to use. A full load, not
+  // a client-side route change: the hub decides what to inject into a page by its URL at load time.
+  useEffect(() => { if (isTvMode()) window.location.replace("/tv"); }, []);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
