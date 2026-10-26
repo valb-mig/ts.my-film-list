@@ -156,6 +156,7 @@ function SearchResults() {
       {selectedMovie && (
         <MovieModal
           movie={selectedMovie}
+          onSelectMovie={setSelectedMovie}
           onClose={() => setSelectedMovie(null)}
           lists={lists}
           listIdsFor={listIdsFor}

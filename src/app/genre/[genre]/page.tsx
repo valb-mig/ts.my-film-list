@@ -219,6 +219,7 @@ export default function GenrePage() {
       {selectedMovie && (
         <MovieModal
           movie={selectedMovie}
+          onSelectMovie={setSelectedMovie}
           onClose={() => setSelectedMovie(null)}
           lists={lists}
           listIdsFor={listIdsFor}
