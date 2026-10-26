@@ -1,7 +1,5 @@
+// Series used to be here too (no stream source had episodes); now they play like movies.
 const NON_WATCHABLE = new Set([
-  "TV series",
-  "TV mini series",
-  "TV mini-series",
   "TV episode",
   "TV special",
   "video game",
