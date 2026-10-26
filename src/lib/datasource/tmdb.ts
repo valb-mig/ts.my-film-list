@@ -12,11 +12,14 @@ import type {
   GenreBrowseResult,
   HomeSection,
   MoodBrowseParams,
+  EpisodeInfo,
   MoodPreset,
 } from "./types";
 
 const API_BASE = "https://api.themoviedb.org/3";
 const IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
+const STILL_BASE = "https://image.tmdb.org/t/p/w300";
+const BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280";
 const PAGE_SIZE = 20;
 const HOME_ROW_SIZE = 12;
 
@@ -87,6 +90,8 @@ interface TmdbCreditPerson {
 
 interface TmdbDetail {
   id: number;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
   title?: string;
   name?: string;
   original_title?: string;
@@ -148,6 +153,25 @@ function toPreviewMovie(item: TmdbSearchItem, mediaType: MediaType): Movie {
   return toMovie(item, mediaType, syntheticId(mediaType, item.id));
 }
 
+interface TmdbEpisode {
+  episode_number: number;
+  name?: string;
+  overview?: string;
+  still_path?: string | null;
+  runtime?: number | null;
+}
+
+// IMDb id (or a synthetic tmdb-* id from a home row) → TMDB media type and id.
+async function resolveTmdb(id: string): Promise<{ mediaType: MediaType; tmdbId: number } | null> {
+  const synthetic = parseSyntheticId(id);
+  // Already know the TMDB id from the home-row preview — skip /find entirely.
+  if (synthetic) return synthetic;
+  const found = await tmdbGet<TmdbFindResponse>(`/find/${id}`, { external_source: "imdb_id" });
+  const movieHit = found.movie_results[0];
+  const hit = movieHit ?? found.tv_results[0];
+  return hit ? { mediaType: movieHit ? "movie" : "tv", tmdbId: hit.id } : null;
+}
+
 async function resolveImdbId(tmdbId: number, mediaType: MediaType): Promise<string | undefined> {
   try {
     const ext = await tmdbGet<TmdbExternalIds>(`/${mediaType}/${tmdbId}/external_ids`);
@@ -186,24 +210,9 @@ export class TmdbDataSource implements MovieDataSource {
 
   async getMovieDetail(id: string): Promise<MovieDetail | null> {
     const synthetic = parseSyntheticId(id);
-    let mediaType: MediaType;
-    let tmdbId: number;
-
-    if (synthetic) {
-      // Already know the TMDB id from the home-row preview — skip /find entirely.
-      mediaType = synthetic.mediaType;
-      tmdbId = synthetic.tmdbId;
-    } else {
-      const found = await tmdbGet<TmdbFindResponse>(`/find/${id}`, {
-        external_source: "imdb_id",
-      });
-      const movieHit = found.movie_results[0];
-      const tvHit = found.tv_results[0];
-      const hit = movieHit ?? tvHit;
-      if (!hit) return null;
-      mediaType = movieHit ? "movie" : "tv";
-      tmdbId = hit.id;
-    }
+    const target = await resolveTmdb(id);
+    if (!target) return null;
+    const { mediaType, tmdbId } = target;
 
     const detail = await tmdbGet<TmdbDetail>(`/${mediaType}/${tmdbId}`, {
       append_to_response: "credits,external_ids",
@@ -231,6 +240,8 @@ export class TmdbDataSource implements MovieDataSource {
       voteCount: detail.vote_count,
       duration: duration ? Math.round(duration) : undefined,
       titleType: mediaType === "tv" ? "TV series" : undefined,
+      poster: detail.poster_path ? `${IMAGE_BASE}${detail.poster_path}` : undefined,
+      backdrop: detail.backdrop_path ? `${BACKDROP_BASE}${detail.backdrop_path}` : undefined,
       // Season 0 is TMDB's "Specials" bucket — skip it along with seasons that have no episodes yet.
       seasons: detail.seasons
         ?.filter((s) => s.season_number > 0 && s.episode_count > 0)
@@ -358,6 +369,19 @@ export class TmdbDataSource implements MovieDataSource {
 
     const data = await tmdbGet<{ results: TmdbSearchItem[] }>(path[section]);
     return data.results.slice(0, HOME_ROW_SIZE).map((item) => toPreviewMovie(item, "movie"));
+  }
+
+  async getSeasonEpisodes(id: string, season: number): Promise<EpisodeInfo[]> {
+    const target = await resolveTmdb(id);
+    if (!target || target.mediaType !== "tv") return [];
+    const data = await tmdbGet<{ episodes?: TmdbEpisode[] }>(`/tv/${target.tmdbId}/season/${season}`);
+    return (data.episodes ?? []).map((e) => ({
+      number: e.episode_number,
+      name: e.name || undefined,
+      overview: e.overview || undefined,
+      still: e.still_path ? `${STILL_BASE}${e.still_path}` : undefined,
+      runtime: e.runtime ?? undefined,
+    }));
   }
 
   async getRecommendations(seedImdbIds: string[]): Promise<Movie[]> {

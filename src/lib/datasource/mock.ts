@@ -7,6 +7,7 @@ import type {
   GenreBrowseResult,
   HomeSection,
   MoodBrowseParams,
+  EpisodeInfo,
 } from "./types";
 import moviesData from "./mocks/movies.json";
 import streamsData from "./mocks/streams.json";
@@ -63,6 +64,7 @@ export class MockDataSource implements MovieDataSource {
       voteCount: m.voteCount,
       duration: m.duration,
       titleType: m.titleType,
+      poster: m.poster,
     });
   }
 
@@ -128,6 +130,11 @@ export class MockDataSource implements MovieDataSource {
     }
 
     return delay(sorted.slice(0, 20).map(toMovie));
+  }
+
+  // The fixtures have no series.
+  async getSeasonEpisodes(): Promise<EpisodeInfo[]> {
+    return delay([]);
   }
 
   async getRecommendations(seedImdbIds: string[]): Promise<Movie[]> {
