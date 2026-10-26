@@ -12,6 +12,7 @@ import NonWatchableAccordion from "@/components/NonWatchableAccordion";
 import DurationSelect from "@/components/DurationSelect";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
+import { useOpenTitle } from "@/hooks/useOpenTitle";
 import { useLists } from "@/hooks/useLists";
 import { isWatchable } from "@/lib/watchable";
 import { randomLoadingMessage } from "@/lib/searchLoadingMessages";
@@ -29,7 +30,7 @@ export default function MoodPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [nextStart, setNextStart] = useState(21);
-  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [selectedMovie, setSelectedMovie] = useOpenTitle();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
   const [durationBucket, setDurationBucket] = useState<DurationBucket>("any");
