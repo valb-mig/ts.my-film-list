@@ -1,0 +1,13 @@
+{
+  "tt0000001": [
+    {
+      "source": "MockSubs",
+      "release": "The.Scarlet.Rift.2019.1080p.WEB-DL",
+      "pageUrl": "https://mock.local/subs/tt0000001",
+      "files": [
+        { "lang": "pt-BR", "url": "https://mock.local/subs/tt0000001/pt-BR.srt" },
+        { "lang": "en", "url": "https://mock.local/subs/tt0000001/en.srt" }
+      ]
+    }
+  ]
+}

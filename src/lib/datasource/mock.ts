@@ -1,5 +1,5 @@
 import type { Movie } from "@/types/imdb";
-import type { StreamResult, ScraperInput } from "@/lib/scrapers/types";
+import type { StreamResult, ScraperInput, SubtitleInput, SubtitleResult } from "@/lib/scrapers/types";
 import type {
   MovieDataSource,
   MovieDetail,
@@ -10,11 +10,21 @@ import type {
 } from "./types";
 import moviesData from "./mocks/movies.json";
 import streamsData from "./mocks/streams.json";
+import subtitlesData from "./mocks/subtitles.json";
 
 interface MockMovie extends Movie, Omit<MovieDetail, "id" | "title" | "year"> {}
 
 const MOVIES = moviesData as MockMovie[];
 const STREAMS = streamsData as Record<string, StreamResult[]>;
+const SUBTITLES = subtitlesData as Record<string, SubtitleResult[]>;
+const SAMPLE_SRT = `1
+00:00:01,000 --> 00:00:04,000
+Legenda de exemplo do MockDataSource.
+
+2
+00:00:05,000 --> 00:00:08,000
+Use os controles do player pra sincronizar.
+`;
 
 function delay<T>(value: T, ms = 150): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -87,6 +97,14 @@ export class MockDataSource implements MovieDataSource {
 
   async findStreams({ id }: ScraperInput): Promise<StreamResult[]> {
     return delay(STREAMS[id] ?? []);
+  }
+
+  async findSubtitles({ id }: SubtitleInput): Promise<SubtitleResult[]> {
+    return delay(SUBTITLES[id] ?? []);
+  }
+
+  async fetchSubtitleFile(url: string): Promise<string | null> {
+    return delay(url.startsWith("https://mock.local/") ? SAMPLE_SRT : null);
   }
 
   async browseHome(section: HomeSection): Promise<Movie[]> {

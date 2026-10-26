@@ -20,4 +20,6 @@ export type {
   Movie,
   StreamResult,
   StreamServer,
+  SubtitleFile,
+  SubtitleResult,
 } from "./types";
