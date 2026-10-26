@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "My Film List — fecha popups do player",
+  "version": "1.1.0",
+  "description": "Fecha automaticamente abas/janelas abertas por players embutidos no My Film List.",
+  "permissions": [
+    "webNavigation",
+    "tabs"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "popup-closer@my-film-list.local"
+    }
+  }
+}
