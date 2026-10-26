@@ -1,9 +1,16 @@
 import type { Movie } from "@/types/imdb";
-import type { StreamResult, ScraperInput } from "@/lib/scrapers/types";
+import type { StreamResult, ScraperInput, SubtitleInput, SubtitleResult } from "@/lib/scrapers/types";
 import type { MoodPreset } from "@/lib/moods";
 
 export type { Movie } from "@/types/imdb";
-export type { StreamResult, StreamServer, ScraperInput } from "@/lib/scrapers/types";
+export type {
+  StreamResult,
+  StreamServer,
+  ScraperInput,
+  SubtitleFile,
+  SubtitleInput,
+  SubtitleResult,
+} from "@/lib/scrapers/types";
 export type { MoodPreset } from "@/lib/moods";
 
 export interface MovieDetail {
@@ -20,6 +27,7 @@ export interface MovieDetail {
   voteCount?: number;
   duration?: number;
   titleType?: string;
+  seasons?: { number: number; episodeCount: number }[];
 }
 
 export interface GenreBrowseParams {
@@ -52,6 +60,8 @@ export interface MovieDataSource {
   browseGenre(params: GenreBrowseParams): Promise<GenreBrowseResult>;
   browseMood(params: MoodBrowseParams): Promise<GenreBrowseResult>;
   findStreams(input: ScraperInput): Promise<StreamResult[]>;
+  findSubtitles(input: SubtitleInput): Promise<SubtitleResult[]>;
+  fetchSubtitleFile(url: string): Promise<string | null>;
   browseHome(section: HomeSection): Promise<Movie[]>;
   getRecommendations(seedImdbIds: string[]): Promise<Movie[]>;
 }

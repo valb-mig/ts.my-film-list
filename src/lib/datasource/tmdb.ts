@@ -1,6 +1,10 @@
 import type { Movie } from "@/types/imdb";
-import type { StreamResult, ScraperInput } from "@/lib/scrapers/types";
-import { findStreams as findConfiguredStreams } from "@/lib/scrapers";
+import type { StreamResult, ScraperInput, SubtitleInput, SubtitleResult } from "@/lib/scrapers/types";
+import {
+  findStreams as findConfiguredStreams,
+  findSubtitles as findConfiguredSubtitles,
+  fetchSubtitleFile as fetchConfiguredSubtitleFile,
+} from "@/lib/scrapers";
 import type {
   MovieDataSource,
   MovieDetail,
@@ -102,6 +106,7 @@ interface TmdbDetail {
   external_ids?: {
     imdb_id?: string | null;
   };
+  seasons?: { season_number: number; episode_count: number }[];
 }
 
 function accessToken(): string {
@@ -226,6 +231,10 @@ export class TmdbDataSource implements MovieDataSource {
       voteCount: detail.vote_count,
       duration: duration ? Math.round(duration) : undefined,
       titleType: mediaType === "tv" ? "TV series" : undefined,
+      // Season 0 is TMDB's "Specials" bucket — skip it along with seasons that have no episodes yet.
+      seasons: detail.seasons
+        ?.filter((s) => s.season_number > 0 && s.episode_count > 0)
+        .map((s) => ({ number: s.season_number, episodeCount: s.episode_count })),
     };
   }
 
@@ -316,6 +325,27 @@ export class TmdbDataSource implements MovieDataSource {
 
   async findStreams(input: ScraperInput): Promise<StreamResult[]> {
     return findConfiguredStreams(input);
+  }
+
+  async findSubtitles(input: SubtitleInput): Promise<SubtitleResult[]> {
+    // Subtitle sites index releases by their English name; the pt-BR title shown in the UI
+    // ("Sr. Ninguém") would rarely match ("Mr.Nobody.2009...").
+    let title = input.title;
+    try {
+      const found = await tmdbGet<TmdbFindResponse>(`/find/${input.id}`, {
+        external_source: "imdb_id",
+        language: "en-US",
+      });
+      const hit = found.movie_results[0] ?? found.tv_results[0];
+      title = hit?.title || hit?.name || title;
+    } catch {
+      // Fall back to the title we were given.
+    }
+    return findConfiguredSubtitles({ ...input, title });
+  }
+
+  async fetchSubtitleFile(url: string): Promise<string | null> {
+    return fetchConfiguredSubtitleFile(url);
   }
 
   async browseHome(section: HomeSection): Promise<Movie[]> {

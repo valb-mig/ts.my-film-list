@@ -1,15 +1,15 @@
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
 import { getDataSource } from "@/lib/datasource";
+import { parseScraperInput } from "@/lib/scraperInput";
 
 export async function GET(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get("id");
-  const title = req.nextUrl.searchParams.get("title");
-  const year = req.nextUrl.searchParams.get("year") ?? undefined;
-
-  if (!id?.trim() || !title?.trim()) {
+  const input = parseScraperInput(req.nextUrl.searchParams);
+  if (!input) {
     return NextResponse.json({ error: "id and title required" }, { status: 400 });
   }
 
-  const results = await getDataSource().findStreams({ id, title, year });
+  const results = await getDataSource().findStreams(input);
   return NextResponse.json(results);
 }
