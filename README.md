@@ -24,11 +24,12 @@ Sem cadastro. Metadados via TMDB (API key grátis) — veja "Fontes de dados" ab
 - 🎭 **Busca por gênero** — navega catálogos inteiros
 - 🎬 **Detalhes** — nota, sinopse, gênero, direção, elenco
 - ▶️ **Assistir** — legendado e dublado, agregando múltiplas fontes configuráveis
-- ⭐ **Coleções** — Minha Lista (watchlist) e Favoritos, salvos localmente
-- 🕑 **Explorado** — histórico em coverflow 3D, agrupado por gênero, com filtro e fixar
-- 🎡 **Roleta** — sorteia um filme do seu banco (filtre por gênero ou vá no escuro)
+- 💬 **Legendas** — download direto do .srt em português e inglês, também por fontes configuráveis
+- ⭐ **Coleções** — Favoritos e listas com nome, salvos localmente
+- 🎡 **Roleta** — sorteia um filme dos seus favoritos e listas (filtre por gênero e duração ou vá no escuro)
 
-Tudo persistido em SQLite local. Nada sai da sua máquina além das chamadas às fontes que você configurar.
+O SQLite local guarda só o que você salva de propósito: favoritos e listas. Busca, detalhes e gêneros
+vêm ao vivo da fonte de metadados. Nada sai da sua máquina além das chamadas às fontes que você configurar.
 
 ---
 
@@ -56,6 +57,8 @@ Vem vazio nesse build (`config.json` com `enabled: []`), só com o contrato defi
 - cada fonte vira um arquivo isolado que implementa esse contrato e se registra com um id único em `registry.ts`. Não importa se a fonte precisa raspar HTML pra descobrir servidores ou só monta uma URL fixa a partir do id — é a mesma interface.
 - `config.json` decide quais ids ficam ativos (`{ "enabled": ["id-a", "id-b"] }`) — ligar/desligar uma fonte é editar essa lista, sem tocar em código.
 - `index.ts` roda todas as fontes ativas em paralelo, junta os resultados e anexa o `kind` de cada uma.
+- **Legendas (.srt)** usam a mesma pasta, registro e lista `enabled`: em vez de `ScraperStrategy`, a fonte implementa `SubtitleStrategy` (`findSubtitles({ id, title, year?, langs })`) e devolve links diretos de download por idioma (hoje `pt-BR` e `en`), junto com o nome do release pra você saber com qual versão do vídeo ela sincroniza.
+- Séries passam `type: "tv"`, `season` e `episode` no mesmo input, tanto pra streams quanto pra legendas.
 
 **Para plugar sua própria fonte:** implemente `ScraperStrategy` (ou `MovieDataSource`, pro caso de metadados) num arquivo novo, registre e ative no config — nenhum outro arquivo precisa mudar.
 
@@ -101,8 +104,41 @@ npm run build    # build de produção
 npm start        # servir build
 ```
 
-> O banco SQLite é criado automaticamente em `data/watchlist.db` na primeira execução.
+> O banco SQLite (favoritos e listas) é criado automaticamente em `data/watchlist.db` na primeira execução.
 > Se o diretório `.next` ficar com permissão de root: `sudo rm -rf .next`.
+
+---
+
+## Sempre ligado (serviço + Tailscale + extensão)
+
+Num clone novo, um comando deixa tudo pronto e no ar a cada boot, sem `npm run dev`:
+
+```bash
+scripts/setup.sh                                   # ou, com seus scrapers particulares:
+scripts/setup.sh --overlay ~/scraper-overlay.zip   # (gerado por scripts/pack-real-scraper.sh)
+```
+
+- **Serviço systemd de usuário** (`my-film-list`): build de produção em `.next-prod` servido em
+  `127.0.0.1:3100` por [`scripts/serve.sh`](scripts/serve.sh). Sobe no boot (com linger) e reinicia
+  se cair. Logs: `journalctl --user -u my-film-list -f`.
+- **Tailscale**: `tailscale serve` publica `https://<sua-máquina>.<tailnet>.ts.net:8443` — só para
+  aparelhos da sua tailnet, nunca na internet aberta.
+- **Extensão do Zen** que fecha os popups dos players embutidos: vai direto nos perfis do Zen. Se o
+  Zen estiver aberto, o script abre o `about:profiles` nele — um clique em "Reiniciar normalmente…"
+  (as abas voltam) e ele confirma que a extensão ficou ativa. Só a extensão: `scripts/setup.sh --so-extensao`.
+  Detalhes em [`extensions/firefox-popup-closer`](extensions/firefox-popup-closer).
+- Pede o token do TMDB se faltar (ou `TMDB_ACCESS_TOKEN=… scripts/setup.sh`).
+
+Atualizar: `git pull && scripts/setup.sh`. Remover: `scripts/setup.sh --desinstalar`.
+Pra desenvolver com o serviço ligado, rode o dev em outra porta: `npm run dev -- -p 3001` (o build de
+produção fica em `.next-prod`, então um não atropela o outro).
+
+**Versão TV (`/tv`):** feita pro controle remoto — fileiras de pôsteres (suas listas, favoritos,
+recomendados, em alta…), painel com o filme em foco, setas pra navegar, OK pra abrir, Voltar pra sair.
+Dois cliques pra assistir: OK no pôster abre os detalhes já em "Assistir", OK de novo toca (em série,
+OK no episódio). Buscar (digitando pelo celular) e Sortear ficam no topo. O hub do
+[projetor](https://github.com/valb-mig/projetor-miracast) abre direto nela; em outro navegador, `?tv=1`
+na home também leva pra lá.
 
 ---
 
