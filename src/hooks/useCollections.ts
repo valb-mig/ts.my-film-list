@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 
 export function useCollections() {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
 
   const fetchFavorites = useCallback(() => {
     fetch("/api/favorites")
@@ -15,19 +14,9 @@ export function useCollections() {
       .catch(() => {});
   }, []);
 
-  const fetchWatched = useCallback(() => {
-    fetch("/api/watched?all=1")
-      .then((r) => r.json())
-      .then((items: { imdb_id: string }[]) =>
-        setWatchedIds(new Set(items.map((i) => i.imdb_id)))
-      )
-      .catch(() => {});
-  }, []);
-
   useEffect(() => {
     fetchFavorites();
-    fetchWatched();
-  }, [fetchFavorites, fetchWatched]);
+  }, [fetchFavorites]);
 
   const handleFavoriteToggle = useCallback((imdbId: string, fav: boolean) => {
     setFavoriteIds((prev) => {
@@ -38,21 +27,9 @@ export function useCollections() {
     });
   }, []);
 
-  const handleWatchedToggle = useCallback((imdbId: string, watched: boolean) => {
-    setWatchedIds((prev) => {
-      const next = new Set(prev);
-      if (watched) next.add(imdbId);
-      else next.delete(imdbId);
-      return next;
-    });
-  }, []);
-
   return {
     favoriteIds,
-    watchedIds,
     handleFavoriteToggle,
-    handleWatchedToggle,
     refreshFavorites: fetchFavorites,
-    refreshWatched: fetchWatched,
   };
 }

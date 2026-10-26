@@ -1,86 +1,29 @@
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
-import { db, ensureInit } from "@/lib/db";
+import { savedMovies, withDetails } from "@/lib/savedMovies";
 
-const NON_WATCHABLE_TYPES = [
-  "TV series", "TV mini series", "TV mini-series",
-  "TV episode", "TV special", "video game",
-  "podcast series", "podcast episode", "short", "Short",
-];
-
-const typeExclude = NON_WATCHABLE_TYPES.map(() => "type != ?").join(" AND ");
-
+// Draws one title from favorites + lists, optionally filtered by genre and duration.
 export async function GET(req: NextRequest) {
-  await ensureInit();
-  const genresParam = req.nextUrl.searchParams.get("genres");
-  const genres = genresParam ? genresParam.split(",").map((g) => g.trim()).filter(Boolean) : [];
-  const minDurationParam = req.nextUrl.searchParams.get("minDuration");
-  const maxDurationParam = req.nextUrl.searchParams.get("maxDuration");
-  const minDuration = minDurationParam ? parseInt(minDurationParam) : undefined;
-  const maxDuration = maxDurationParam ? parseInt(maxDurationParam) : undefined;
-  const hasDurationFilter = minDuration !== undefined || maxDuration !== undefined;
+  const params = req.nextUrl.searchParams;
+  const genres = (params.get("genres") ?? "").split(",").map((g) => g.trim()).filter(Boolean);
+  const minDuration = params.get("minDuration") ? parseInt(params.get("minDuration")!) : undefined;
+  const maxDuration = params.get("maxDuration") ? parseInt(params.get("maxDuration")!) : undefined;
+  const filtered = genres.length > 0 || minDuration !== undefined || maxDuration !== undefined;
 
-  // Duration only exists for history_movies whose detail the user has already opened —
-  // when filtering by it, watchlist-only titles (no duration on file) are excluded too.
-  const durationCondition = hasDurationFilter
-    ? `AND duration_min IS NOT NULL
-       ${minDuration !== undefined ? "AND duration_min >= ?" : ""}
-       ${maxDuration !== undefined ? "AND duration_min <= ?" : ""}`
-    : "";
-  const durationArgs = hasDurationFilter
-    ? [...(minDuration !== undefined ? [minDuration] : []), ...(maxDuration !== undefined ? [maxDuration] : [])]
-    : [];
-
-  let result;
-
-  if (genres.length > 0) {
-    const genreConditions = genres.map(() => `genres_json LIKE ?`).join(" OR ");
-    result = await db.execute({
-      sql: `
-        SELECT imdb_id, title, year, poster_url, type
-        FROM history_movies
-        WHERE (${genreConditions})
-          AND (type IS NULL OR (${typeExclude}))
-          ${durationCondition}
-        GROUP BY imdb_id
-        ORDER BY RANDOM()
-        LIMIT 1
-      `,
-      args: [...genres.map((g) => `%"${g}"%`), ...NON_WATCHABLE_TYPES, ...durationArgs],
-    });
-  } else if (hasDurationFilter) {
-    result = await db.execute({
-      sql: `
-        SELECT imdb_id, title, year, poster_url, type
-        FROM history_movies
-        WHERE (type IS NULL OR (${typeExclude}))
-          ${durationCondition}
-        GROUP BY imdb_id
-        ORDER BY RANDOM()
-        LIMIT 1
-      `,
-      args: [...NON_WATCHABLE_TYPES, ...durationArgs],
-    });
-  } else {
-    result = await db.execute({
-      sql: `
-        SELECT imdb_id, title, year, poster_url, type
-        FROM (
-          SELECT imdb_id, title, year, poster_url, type FROM history_movies
-          WHERE type IS NULL OR (${typeExclude})
-          GROUP BY imdb_id
-          UNION
-          SELECT imdb_id, title, year, poster_url, NULL as type FROM list_items
-        )
-        ORDER BY RANDOM()
-        LIMIT 1
-      `,
-      args: [...NON_WATCHABLE_TYPES],
-    });
+  let pool = await savedMovies();
+  if (filtered) {
+    pool = (await withDetails(pool)).filter(
+      (m) =>
+        (genres.length === 0 || m.genres.some((g) => genres.includes(g))) &&
+        (minDuration === undefined || (m.duration !== undefined && m.duration >= minDuration)) &&
+        (maxDuration === undefined || (m.duration !== undefined && m.duration <= maxDuration))
+    );
   }
 
-  if (!result.rows.length) {
+  if (pool.length === 0) {
     return NextResponse.json({ error: "no movies" }, { status: 404 });
   }
-
-  return NextResponse.json(result.rows[0]);
+  const { imdb_id, title, year, poster_url } = pool[Math.floor(Math.random() * pool.length)];
+  return NextResponse.json({ imdb_id, title, year, poster_url });
 }

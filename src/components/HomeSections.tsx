@@ -36,13 +36,6 @@ export default function HomeSections({ watchlistIds, favoriteIds, onSelectMovie 
         favoriteIds={favoriteIds}
         onSelectMovie={onSelectMovie}
       />
-      <HomeRow
-        title="Baseado no que você assistiu"
-        endpoint="/api/home/recommendations/watched"
-        watchlistIds={watchlistIds}
-        favoriteIds={favoriteIds}
-        onSelectMovie={onSelectMovie}
-      />
     </div>
   );
 }
