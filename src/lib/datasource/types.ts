@@ -28,6 +28,18 @@ export interface MovieDetail {
   duration?: number;
   titleType?: string;
   seasons?: { number: number; episodeCount: number }[];
+  poster?: string;
+  // Wide background image (landscape), when the source has one.
+  backdrop?: string;
+}
+
+export interface EpisodeInfo {
+  number: number;
+  name?: string;
+  overview?: string;
+  // Still image URL.
+  still?: string;
+  runtime?: number;
 }
 
 export interface GenreBrowseParams {
@@ -64,4 +76,5 @@ export interface MovieDataSource {
   fetchSubtitleFile(url: string): Promise<string | null>;
   browseHome(section: HomeSection): Promise<Movie[]>;
   getRecommendations(seedImdbIds: string[]): Promise<Movie[]>;
+  getSeasonEpisodes(id: string, season: number): Promise<EpisodeInfo[]>;
 }
