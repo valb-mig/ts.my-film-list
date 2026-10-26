@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import type { SubtitleResult } from "@/lib/scrapers/types";
 import { parseSrt, withoutAds, cueAt, nextCueIndex, type Cue } from "@/lib/srt";
 import { PlayerClock } from "@/lib/playerClock";
 import { clampScale } from "@/lib/subtitleStyle";
 import { isTvMode } from "@/lib/tvMode";
+import { focusElement } from "@/lib/tvNav";
 import { useSubtitleStyle } from "@/hooks/useSubtitleStyle";
 import SubtitleLayer from "./SubtitleLayer";
 import {
@@ -27,7 +29,12 @@ interface Props {
   searching?: boolean;
   status?: string;
   subtitles: SubtitleResult[];
-  onClose: () => void;
+  // Gets how much was watched (0–1), or null if the player never reported it.
+  onClose: (progress: number | null) => void;
+  // Where to rate this title (e.g. its Letterboxd page) — offered once the credits roll.
+  rateUrl?: string;
+  // Series: the episode after this one — offered during the credits, played after a countdown.
+  next?: { label: string; name?: string; still?: string; onPlay: () => void };
   // Shown beside the video when not in theater mode (details, saving, recommendations).
   aside?: React.ReactNode;
 }
@@ -56,6 +63,10 @@ function formatSeconds(seconds: number): string {
 
 const SAMPLE_TEXT = "Arraste a legenda\npra onde quiser";
 
+// Next-episode card: shows when this little is left (the credits), then counts down to autoplay.
+const NEXT_UP_AT_S = 45;
+const NEXT_UP_COUNTDOWN_S = 10;
+
 // Theater mode (the video fills the window, everything else black) is the default and sticks.
 const THEATER_KEY = "playerTheater";
 // The bar hides after the mouse rests this long outside it…
@@ -78,7 +89,9 @@ function isTyping(target: EventTarget | null): boolean {
 const barButton =
   "px-2.5 h-7 rounded-lg text-xs font-medium text-[#9a8878] hover:text-[#f0e8dc] bg-white/[0.06] hover:bg-white/[0.12] transition-colors disabled:opacity-40 outline-none focus:ring-2 focus:ring-[#d4845a] focus:text-[#f0e8dc]";
 
-export default function PlayerModal({ title, label, embedUrl, searching = false, status, subtitles, onClose, aside }: Props) {
+export default function PlayerModal({
+  title, label, embedUrl, searching = false, status, subtitles, onClose, rateUrl, next, aside,
+}: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const clockRef = useRef(new PlayerClock());
@@ -107,6 +120,51 @@ export default function PlayerModal({ title, label, embedUrl, searching = false,
   // Video alone on screen: theater mode, or always on a TV.
   const wide = tv || theater;
   const [barFocused, setBarFocused] = useState(false);
+  // Past the credits: offer rating it (until dismissed).
+  const [nearEnd, setNearEnd] = useState(false);
+  const [rateDismissed, setRateDismissed] = useState(false);
+  const close = useCallback(() => onClose(clockRef.current.progress()), [onClose]);
+
+  // Seconds left on the next-episode countdown; null while the card is hidden.
+  const [nextUp, setNextUp] = useState<number | null>(null);
+  const nextDismissed = useRef(false);
+  const nextFired = useRef(false);
+  const nextRef = useRef(next);
+  nextRef.current = next;
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const hasNext = Boolean(next);
+
+  useEffect(() => {
+    if (!hasNext) return;
+    const id = setInterval(() => {
+      const left = clockRef.current.remaining();
+      const inCredits = left !== null && left <= NEXT_UP_AT_S;
+      setNextUp((count) => {
+        // Seeking back out of the credits (or "Cancelar") hides it.
+        if (!inCredits || nextDismissed.current) return null;
+        if (count === null) return NEXT_UP_COUNTDOWN_S;
+        // The countdown only runs while the video does (or once it's over).
+        return clockRef.current.isPlaying() || (left ?? 1) < 1 ? count - 1 : count;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [hasNext]);
+
+  const playNext = useCallback(() => {
+    if (nextFired.current) return;
+    nextFired.current = true;
+    nextRef.current?.onPlay();
+  }, []);
+
+  useEffect(() => {
+    if (nextUp !== null && nextUp <= 0) playNext();
+  }, [nextUp, playNext]);
+
+  // On a TV, OK should be all it takes: the card arrives with focus on "Assistir agora".
+  const nextVisible = nextUp !== null;
+  useEffect(() => {
+    if (tv && nextVisible && nextButtonRef.current) focusElement(nextButtonRef.current);
+  }, [tv, nextVisible]);
 
   // The bar shows on any activity — mouse moving over our page, the player showing its cursor
   // (mouse moving over the video), a key press — and hides once the mouse rests outside it.
@@ -142,14 +200,22 @@ export default function PlayerModal({ title, label, embedUrl, searching = false,
       if (e.key === "Escape") {
         if (editing) setEditing(false);
         // In fullscreen, Escape just leaves fullscreen.
-        else if (!document.fullscreenElement) onClose();
+        else if (!document.fullscreenElement) close();
       } else if ((e.key === "t" || e.key === "T") && !tv && !isTyping(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         toggleTheater();
       }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, editing, tv, toggleTheater]);
+  }, [close, editing, tv, toggleTheater]);
+
+  useEffect(() => {
+    if (!rateUrl || tv) return;
+    const id = setInterval(() => {
+      if ((clockRef.current.progress() ?? 0) >= 0.9) setNearEnd(true);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [rateUrl, tv]);
 
   useEffect(() => {
     const onKey = () => wakeBar(5000);
@@ -301,7 +367,7 @@ export default function PlayerModal({ title, label, embedUrl, searching = false,
           </a>
         )}
         <button
-          onClick={onClose}
+          onClick={close}
           className="p-2 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-[#9a8878] hover:text-[#f0e8dc] transition-colors"
           aria-label="Fechar player"
         >
@@ -347,7 +413,73 @@ export default function PlayerModal({ title, label, embedUrl, searching = false,
               onScaleStep={(delta) => updateStyle({ scale: clampScale(style.scale + delta) })}
             />
 
-            {/* Only the panels themselves take clicks — the strip around them stays clickable for the player. */}
+            {next && nextUp !== null && (
+            <div
+              className={`absolute bottom-[16%] right-4 z-10 w-72 rounded-2xl overflow-hidden bg-black/85 backdrop-blur border border-white/[0.1] shadow-2xl ${
+                tv ? "[zoom:1.6]" : ""
+              }`}
+            >
+              {next.still && (
+                <div className="relative aspect-video">
+                  <Image src={next.still} alt="" fill sizes="288px" className="object-cover" />
+                </div>
+              )}
+              <div className="p-3 flex flex-col gap-2.5">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#9a8878]">Próximo episódio</p>
+                  <p className="text-sm font-semibold text-[#f0e8dc] line-clamp-1">
+                    {next.label}{next.name ? ` · ${next.name}` : ""}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    ref={nextButtonRef}
+                    onClick={playNext}
+                    className="relative flex-1 h-9 rounded-lg overflow-hidden bg-[#d4845a] text-sm font-bold text-white outline-none focus:ring-2 focus:ring-[#f0e8dc]"
+                  >
+                    <span
+                      className="absolute inset-y-0 left-0 bg-white/25 transition-[width] duration-1000 ease-linear"
+                      style={{ width: `${((NEXT_UP_COUNTDOWN_S - nextUp) / NEXT_UP_COUNTDOWN_S) * 100}%` }}
+                    />
+                    <span className="relative flex items-center justify-center gap-1.5">
+                      <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                      Assistir agora · {Math.max(0, nextUp)}s
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => { nextDismissed.current = true; setNextUp(null); }}
+                    className="h-9 px-3 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-xs font-semibold text-[#9a8878] hover:text-[#f0e8dc] transition-colors outline-none focus:ring-2 focus:ring-[#d4845a]"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {rateUrl && nearEnd && !rateDismissed && (
+            <div className="absolute bottom-[18%] right-4 z-10 flex items-center gap-1 rounded-xl pl-3 pr-1 py-1 bg-black/80 backdrop-blur border border-[#d4845a]/40 shadow-lg">
+              <a
+                href={rateUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-semibold text-[#f0e8dc] hover:text-[#d4845a] transition-colors"
+              >
+                Terminou? ★ Avaliar no Letterboxd ↗
+              </a>
+              <button
+                onClick={() => setRateDismissed(true)}
+                className="p-1.5 rounded-lg text-[#5a4e46] hover:text-[#f0e8dc] transition-colors"
+                aria-label="Dispensar"
+              >
+                <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {/* Only the panels themselves take clicks — the strip around them stays clickable for the player. */}
             <div
               className={`pointer-events-none absolute top-3 inset-x-3 flex flex-col items-center gap-2 transition-opacity duration-200 ${
                 showBar ? "opacity-100 [&>*]:pointer-events-auto" : "opacity-0"
@@ -458,7 +590,7 @@ export default function PlayerModal({ title, label, embedUrl, searching = false,
                   </button>
                 )}
                 {wide && !tv && (
-                  <button onClick={onClose} className={barButton} aria-label="Fechar player" title="Fechar (Esc)">
+                  <button onClick={close} className={barButton} aria-label="Fechar player" title="Fechar (Esc)">
                     <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
                     </svg>

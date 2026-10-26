@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { Movie } from "@/types/imdb";
-import { MovieDetail } from "@/lib/datasource";
+import type { EpisodeInfo, MovieDetail } from "@/lib/datasource";
+import { nextEpisode, seasonEpisodes } from "@/lib/episodes";
 import type { StreamResult, SubtitleResult } from "@/lib/scrapers/types";
 import type { ListInfo } from "@/hooks/useLists";
 import { sourceQuery, useSourceList } from "@/hooks/useSourceList";
@@ -24,6 +25,47 @@ interface Props {
   onFavoriteToggle?: (imdbId: string, favorited: boolean) => void;
   // Switches to another title (the player's recommendations).
   onSelectMovie?: (movie: Movie) => void;
+}
+
+// After watching most of a movie: a nudge to rate it while it's fresh.
+function PostWatchCard({ poster, title, rateUrl, onClose }: { poster?: string; title: string; rateUrl: string; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-lg"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="flex flex-col items-center gap-5 rounded-3xl bg-[#0f0d0b] border border-white/[0.08] px-10 py-8 shadow-[0_40px_100px_rgba(0,0,0,0.9)] text-center">
+        {poster && (
+          <div className="relative w-28 aspect-[2/3] rounded-xl overflow-hidden shadow-lg">
+            <Image src={poster} alt="" fill sizes="112px" className="object-cover" />
+          </div>
+        )}
+        <div className="flex flex-col gap-1">
+          <p className="text-xl font-black text-[#f0e8dc]">Como foi {title}?</p>
+          <p className="text-sm text-[#9a8878]">Dá sua nota enquanto tá fresco.</p>
+        </div>
+        <div className="flex gap-2">
+          <a
+            href={rateUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClose}
+            autoFocus
+            className="flex items-center gap-2 h-11 px-5 rounded-xl text-sm font-bold bg-[#d4845a] hover:bg-[#e2946a] text-white transition-colors"
+          >
+            <Icon name="star" size={16} />
+            Dar nota no Letterboxd ↗
+          </a>
+          <button
+            onClick={onClose}
+            className="h-11 px-5 rounded-xl text-sm font-semibold bg-white/[0.08] hover:bg-white/[0.14] text-[#f0e8dc] transition-colors"
+          >
+            Agora não
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function LoadingScreen({ movie, failed, onClose }: { movie: Movie; failed: boolean; onClose: () => void }) {
@@ -70,6 +112,8 @@ export default function MovieModal({
   // Series: the player is open on top of the panel.
   const [watching, setWatching] = useState(false);
   const [lastWatched, setLastWatched] = useState<{ season: number; episode: number } | null>(null);
+  // Closed the player after watching most of a movie: show the "rate it" card instead of closing.
+  const [postWatch, setPostWatch] = useState(false);
 
   useEffect(() => { setFavorited(isFavorited); }, [isFavorited, movie.id]);
 
@@ -80,6 +124,7 @@ export default function MovieModal({
     setEpisode(1);
     setWatching(false);
     setLastWatched(null);
+    setPostWatch(false);
     // Home-row cards carry a synthetic tmdb-* id; the detail resolves the real IMDb id.
     setResolvedId(/^tt\d+$/.test(id) ? id : null);
     let cancelled = false;
@@ -99,7 +144,7 @@ export default function MovieModal({
   const ready = loadedFor === movie.id;
   const isSeries = (detail?.titleType ?? movie.type) === "TV series";
   const seasons = detail?.seasons ?? [];
-  const playerOpen = ready && (!isSeries || watching);
+  const playerOpen = ready && !postWatch && (!isSeries || watching);
 
   const query = playerOpen && resolvedId
     ? sourceQuery(resolvedId, detail?.title ?? movie.title, detail?.year ?? movie.year, isSeries ? { season, episode } : null)
@@ -108,6 +153,21 @@ export default function MovieModal({
   const { items: subtitles } = useSourceList<SubtitleResult>("/api/subtitles", query, !ready);
   // Subtitled first (the subtitle overlay is the point), dubbed if that's all there is.
   const server = (streams.find((s) => s.kind === "sub") ?? streams.find((s) => s.kind === "dub"))?.servers[0];
+
+  // Series: what plays after this episode, with its name and still for the next-episode card.
+  const upNext = isSeries ? nextEpisode(seasons, season, episode) : null;
+  const [upNextInfo, setUpNextInfo] = useState<EpisodeInfo | null>(null);
+  useEffect(() => {
+    setUpNextInfo(null);
+    if (!upNext || !resolvedId || !playerOpen) return;
+    let cancelled = false;
+    seasonEpisodes(resolvedId, upNext.season).then((eps) => {
+      if (!cancelled) setUpNextInfo(eps.find((e) => e.number === upNext.episode) ?? null);
+    });
+    return () => { cancelled = true; };
+    // upNext is rebuilt every render; its season/episode are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedId, upNext?.season, upNext?.episode, playerOpen]);
 
   // While the player is open, Escape belongs to it (closes the player; for series, back to the panel).
   useEffect(() => {
@@ -124,6 +184,8 @@ export default function MovieModal({
   const year = detail?.year ?? movie.year;
   const poster = movie.poster ?? detail?.poster;
   const listIds = resolvedId ? listIdsFor(resolvedId) : new Set<number>();
+  // Letterboxd is films only; its /imdb/<id>/ address lands on the film's page (rating stars up top).
+  const letterboxdUrl = !isSeries && resolvedId ? `https://letterboxd.com/imdb/${resolvedId}/` : undefined;
 
   const toggleFavorite = useCallback(async () => {
     if (!resolvedId) return;
@@ -177,6 +239,9 @@ export default function MovieModal({
   if (!ready || (isSeries && !resolvedId)) {
     return <LoadingScreen movie={movie} failed={ready} onClose={onClose} />;
   }
+  if (postWatch && letterboxdUrl) {
+    return <PostWatchCard poster={poster} title={title} rateUrl={letterboxdUrl} onClose={onClose} />;
+  }
 
   const saved = defaultList ? listIds.has(defaultList.id) : false;
 
@@ -213,7 +278,22 @@ export default function MovieModal({
           searching={streamsLoading}
           status={streamsLoading ? "Procurando fonte…" : "Nenhuma fonte disponível pra este título."}
           subtitles={subtitles}
-          onClose={isSeries ? () => setWatching(false) : onClose}
+          rateUrl={letterboxdUrl}
+          next={
+            upNext
+              ? {
+                  label: `T${upNext.season} E${upNext.episode}`,
+                  name: upNextInfo?.name,
+                  still: upNextInfo?.still,
+                  onPlay: () => playEpisode(upNext.season, upNext.episode),
+                }
+              : undefined
+          }
+          onClose={(progress) => {
+            if (isSeries) setWatching(false);
+            else if (letterboxdUrl && progress !== null && progress >= 0.7) setPostWatch(true);
+            else onClose();
+          }}
           aside={
             <PlayerSidebar
               id={resolvedId}
@@ -227,6 +307,7 @@ export default function MovieModal({
               onToggleList={toggleList}
               onCreateList={createListAndSave}
               onPick={(next) => onSelectMovie?.(next)}
+              letterboxdUrl={letterboxdUrl}
               series={isSeries && seasons.length > 0 ? { seasons, season, episode, onPlay: playEpisode } : undefined}
             />
           }
