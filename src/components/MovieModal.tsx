@@ -4,8 +4,10 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { Movie } from "@/types/imdb";
 import { MovieDetail } from "@/lib/datasource";
-import type { StreamResult } from "@/lib/scrapers/types";
+import type { StreamResult, StreamServer, SubtitleResult } from "@/lib/scrapers/types";
 import type { ListInfo } from "@/hooks/useLists";
+import PlayerModal from "./PlayerModal";
+import { sourceQuery, useSourceList } from "@/hooks/useSourceList";
 
 interface Props {
   movie: Movie;
@@ -17,11 +19,9 @@ interface Props {
   onCreateList: (name: string) => Promise<ListInfo | null>;
   isFavorited?: boolean;
   onFavoriteToggle?: (imdbId: string, favorited: boolean) => void;
-  isWatched?: boolean;
-  onWatchedToggle?: (imdbId: string, watched: boolean) => void;
 }
 
-function SourceAccordion({ stream, onWatch }: { stream: StreamResult; onWatch: () => void }) {
+function SourceAccordion({ stream, onPlay }: { stream: StreamResult; onPlay: (server: StreamServer) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -38,16 +38,13 @@ function SourceAccordion({ stream, onWatch }: { stream: StreamResult; onWatch: (
         </svg>
       </button>
       {open && stream.servers.map((s) => (
-        <a
+        <button
           key={s.id}
-          href={s.embedUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={onWatch}
+          onClick={() => onPlay(s)}
           className="bg-white/[0.04] hover:bg-white/[0.10] border border-white/[0.06] text-[#9a8878] hover:text-[#f0e8dc] text-xs px-3 py-1.5 rounded-xl transition-colors"
         >
           {s.label}
-        </a>
+        </button>
       ))}
       {open && (
         <a
@@ -63,20 +60,44 @@ function SourceAccordion({ stream, onWatch }: { stream: StreamResult; onWatch: (
   );
 }
 
+function SubtitleRow({ subtitle }: { subtitle: SubtitleResult }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {subtitle.files.map((f) => (
+        <a
+          key={f.lang}
+          href={f.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[#9a8878] hover:text-[#f0e8dc] text-xs font-medium px-3 py-1.5 rounded-xl transition-colors"
+        >
+          <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z" />
+          </svg>
+          {f.lang.toUpperCase()}
+        </a>
+      ))}
+      <a
+        href={subtitle.pageUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`${subtitle.source}: ${subtitle.release}`}
+        className="text-[#5a4e46] hover:text-[#9a8878] text-xs transition-colors truncate min-w-0 max-w-full"
+      >
+        {subtitle.files.length > 0 ? subtitle.release : `Traduzir no ${subtitle.source}`} ↗
+      </a>
+    </div>
+  );
+}
+
 export default function MovieModal({
   movie, onClose, lists, listIdsFor, onAddToList, onRemoveFromList, onCreateList,
-  isFavorited = false, onFavoriteToggle, isWatched = false, onWatchedToggle,
+  isFavorited = false, onFavoriteToggle,
 }: Props) {
   const [detail, setDetail] = useState<MovieDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [streams, setStreams] = useState<StreamResult[]>([]);
-  const [streamsLoading, setStreamsLoading] = useState(true);
-  const subStreams = streams.filter((s) => s.kind === "sub");
-  const dubStreams = streams.filter((s) => s.kind === "dub");
   const [favorited, setFavorited] = useState(isFavorited);
   const [favoriting, setFavoriting] = useState(false);
-  const [watched, setWatched] = useState(isWatched);
-  const [markingWatched, setMarkingWatched] = useState(false);
   const [listsOpen, setListsOpen] = useState(false);
   const [creatingList, setCreatingList] = useState(false);
   const [newListName, setNewListName] = useState("");
@@ -85,8 +106,26 @@ export default function MovieModal({
   // Home-row cards carry a synthetic tmdb-* id (no imdb_id resolved yet, to avoid an extra TMDB
   // call per card). Real ids resolve immediately; synthetic ones wait for the detail fetch below.
   const [resolvedId, setResolvedId] = useState<string | null>(() => /^tt\d+$/.test(movie.id) ? movie.id : null);
+  const [season, setSeason] = useState(1);
+  const [episode, setEpisode] = useState(1);
+  const [playing, setPlaying] = useState<StreamServer | null>(null);
+  const isTv = (detail?.titleType ?? movie.type) === "TV series";
+  const seasons = detail?.seasons ?? [];
+  const episodeCount = seasons.find((s) => s.number === season)?.episodeCount ?? 0;
 
-  useEffect(() => { setFavorited(isFavorited); setWatched(isWatched); }, [isFavorited, isWatched, movie.id]);
+  // Wait for the detail fetch: it's what tells us a title is a series (cards from lists don't
+  // carry a type), and series need season/episode before any stream/subtitle lookup makes sense.
+  const query = !loading && resolvedId
+    ? sourceQuery(resolvedId, movie.title, movie.year, isTv ? { season, episode } : null)
+    : null;
+  const { items: streams, loading: streamsLoading } =
+    useSourceList<StreamResult>("/api/streams", query, loading);
+  const { items: subtitles, loading: subtitlesLoading } =
+    useSourceList<SubtitleResult>("/api/subtitles", query, loading);
+  const subStreams = streams.filter((s) => s.kind === "sub");
+  const dubStreams = streams.filter((s) => s.kind === "dub");
+
+  useEffect(() => { setFavorited(isFavorited); }, [isFavorited, movie.id]);
   useEffect(() => { setResolvedId(/^tt\d+$/.test(movie.id) ? movie.id : null); }, [movie.id]);
 
   useEffect(() => {
@@ -103,42 +142,25 @@ export default function MovieModal({
   useEffect(() => {
     setLoading(true);
     setDetail(null);
+    setSeason(1);
+    setEpisode(1);
     fetch(`/api/movie/${movie.id}`)
       .then((r) => r.json())
       .then((data: MovieDetail & { error?: string }) => {
         if (!data.error) {
           setDetail(data);
           setResolvedId(data.id);
-          if (data.genres?.length || data.duration) {
-            fetch(`/api/history/movie/${data.id}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ genres: data.genres, duration: data.duration }),
-            }).catch(() => {});
-          }
-        } else {
-          // Couldn't resolve a real id (e.g. detail lookup failed) — stop the streams skeleton.
-          setStreamsLoading(false);
+          if (data.seasons?.length) setSeason(data.seasons[0].number);
         }
       })
-      .catch(() => setStreamsLoading(false))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [movie.id]);
 
-  useEffect(() => {
-    if (!resolvedId) return;
-    setStreamsLoading(true);
-    setStreams([]);
-    const params = new URLSearchParams({ id: resolvedId, title: movie.title });
-    if (movie.year) params.set("year", String(movie.year));
-    fetch(`/api/streams?${params}`)
-      .then((r) => r.json())
-      .then((data: StreamResult[]) => { if (Array.isArray(data)) setStreams(data); })
-      .catch(() => {})
-      .finally(() => setStreamsLoading(false));
-  }, [resolvedId, movie.title, movie.year]);
-
-  const handleKey = useCallback((e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }, [onClose]);
+  // While the player is open, Escape belongs to it (closes the player, not this modal).
+  const handleKey = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape" && !playing) onClose();
+  }, [onClose, playing]);
   useEffect(() => {
     document.addEventListener("keydown", handleKey);
     document.body.style.overflow = "hidden";
@@ -194,41 +216,13 @@ export default function MovieModal({
     if (created) await onAddToList(created.id, { id: resolvedId, title, year, poster }, detail?.ratingValue);
   }, [newListName, onCreateList, onAddToList, resolvedId, title, year, poster, detail]);
 
-  const handleWatch = useCallback(() => {
-    if (!resolvedId) return;
-    fetch("/api/watched", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imdb_id: resolvedId, title, year, poster_url: poster }),
-    }).catch(() => {});
-    setWatched(true);
-    onWatchedToggle?.(resolvedId, true);
-  }, [resolvedId, title, year, poster, onWatchedToggle]);
-
-  const handleWatchedToggle = useCallback(async () => {
-    if (!resolvedId) return;
-    setMarkingWatched(true);
-    try {
-      if (watched) {
-        await fetch(`/api/watched/${resolvedId}`, { method: "DELETE" });
-        setWatched(false);
-        onWatchedToggle?.(resolvedId, false);
-      } else {
-        await fetch("/api/watched", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdb_id: resolvedId, title, year, poster_url: poster }),
-        });
-        setWatched(true);
-        onWatchedToggle?.(resolvedId, true);
-      }
-    } catch { /* noop */ } finally { setMarkingWatched(false); }
-  }, [watched, resolvedId, title, year, poster, onWatchedToggle]);
+  const handlePlay = useCallback((server: StreamServer) => setPlaying(server), []);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-lg"
-      onClick={onClose}
+      // Backdrop clicks only — the player overlay below is a child and must not close this modal.
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
         className="relative w-full sm:max-w-3xl max-h-[92vh] rounded-t-3xl sm:rounded-3xl overflow-hidden"
@@ -261,26 +255,6 @@ export default function MovieModal({
         <div className="relative z-10 overflow-y-auto max-h-[92vh]">
           {/* Action bar */}
           <div className="flex items-center justify-end gap-2 p-4">
-            <button
-              onClick={handleWatchedToggle}
-              disabled={markingWatched || !resolvedId}
-              className={`p-2 rounded-full transition-all disabled:opacity-50 ${
-                watched
-                  ? "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30"
-                  : "bg-white/[0.06] text-[#9a8878] hover:bg-white/[0.12] hover:text-[#f0e8dc]"
-              }`}
-              aria-label={watched ? "Desmarcar como assistido" : "Marcar como assistido"}
-              title={watched ? "Assistido" : "Marcar como assistido"}
-            >
-              <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
-                {watched ? (
-                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                ) : (
-                  <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8a3 3 0 100 6 3 3 0 000-6z" />
-                )}
-              </svg>
-            </button>
-
             <button
               onClick={handleFavoriteToggle}
               disabled={favoriting || !resolvedId}
@@ -502,6 +476,32 @@ export default function MovieModal({
           {/* Watch section */}
           <div className="mx-5 mb-5 rounded-2xl p-4"
             style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            {isTv && seasons.length > 0 && (
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
+                <select
+                  value={season}
+                  onChange={(e) => { setSeason(Number(e.target.value)); setEpisode(1); }}
+                  aria-label="Temporada"
+                  className="bg-white/[0.05] hover:bg-white/[0.10] border border-white/[0.08] text-[#f0e8dc] text-xs font-medium px-2.5 h-[30px] rounded-xl outline-none cursor-pointer transition-colors"
+                  style={{ colorScheme: "dark" }}
+                >
+                  {seasons.map((s) => (
+                    <option key={s.number} value={s.number}>Temporada {s.number}</option>
+                  ))}
+                </select>
+                <select
+                  value={episode}
+                  onChange={(e) => setEpisode(Number(e.target.value))}
+                  aria-label="Episódio"
+                  className="bg-white/[0.05] hover:bg-white/[0.10] border border-white/[0.08] text-[#f0e8dc] text-xs font-medium px-2.5 h-[30px] rounded-xl outline-none cursor-pointer transition-colors"
+                  style={{ colorScheme: "dark" }}
+                >
+                  {Array.from({ length: episodeCount }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>Episódio {n}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex gap-6 flex-wrap">
               <div className="flex flex-col gap-2 min-w-[140px]">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-[#5a4e46]">Legendado</p>
@@ -509,7 +509,7 @@ export default function MovieModal({
                   <div className="h-8 w-24 bg-white/[0.06] rounded-xl animate-pulse" />
                 ) : subStreams.length > 0 ? (
                   <div className="flex flex-col gap-2">
-                    {subStreams.map((s) => <SourceAccordion key={s.source} stream={s} onWatch={handleWatch} />)}
+                    {subStreams.map((s) => <SourceAccordion key={s.source} stream={s} onPlay={handlePlay} />)}
                   </div>
                 ) : (
                   <p className="text-[#5a4e46] text-xs">Não disponível</p>
@@ -524,16 +524,41 @@ export default function MovieModal({
                   <div className="h-8 w-24 bg-white/[0.06] rounded-xl animate-pulse" />
                 ) : dubStreams.length > 0 ? (
                   <div className="flex flex-col gap-2">
-                    {dubStreams.map((s) => <SourceAccordion key={s.source} stream={s} onWatch={handleWatch} />)}
+                    {dubStreams.map((s) => <SourceAccordion key={s.source} stream={s} onPlay={handlePlay} />)}
                   </div>
                 ) : (
                   <p className="text-[#5a4e46] text-xs">Não disponível</p>
                 )}
               </div>
             </div>
+
+            <div className="h-px bg-white/[0.06] my-4" />
+
+            <div className="flex flex-col gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#5a4e46]">Legendas (.srt)</p>
+              {subtitlesLoading ? (
+                <div className="h-8 w-40 bg-white/[0.06] rounded-xl animate-pulse" />
+              ) : subtitles.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {subtitles.map((s) => <SubtitleRow key={s.pageUrl} subtitle={s} />)}
+                </div>
+              ) : (
+                <p className="text-[#5a4e46] text-xs">Não disponível</p>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {playing && (
+        <PlayerModal
+          title={isTv ? `${title} · T${season} E${episode}` : title}
+          label={playing.label}
+          embedUrl={playing.embedUrl}
+          subtitles={subtitles}
+          onClose={() => setPlaying(null)}
+        />
+      )}
     </div>
   );
 }
