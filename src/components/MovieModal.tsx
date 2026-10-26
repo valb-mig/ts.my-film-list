@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Movie } from "@/types/imdb";
 import type { EpisodeInfo, MovieDetail } from "@/lib/datasource";
 import { nextEpisode, seasonEpisodes } from "@/lib/episodes";
+import { readTitleUrl, writeTitleUrl } from "@/lib/titleUrl";
 import type { StreamResult, SubtitleResult } from "@/lib/scrapers/types";
 import type { ListInfo } from "@/hooks/useLists";
 import { sourceQuery, useSourceList } from "@/hooks/useSourceList";
@@ -135,6 +136,15 @@ export default function MovieModal({
         setDetail(data);
         setResolvedId(data.id);
         if (data.seasons?.length) setSeason(data.seasons[0].number);
+        // Reopened from the URL (a refresh) while a series was playing: back to that episode.
+        const fromUrl = readTitleUrl();
+        if (data.titleType === "TV series" && (fromUrl.id === id || fromUrl.id === data.id) && fromUrl.season) {
+          const resume = { season: fromUrl.season, episode: fromUrl.episode ?? 1 };
+          setSeason(resume.season);
+          setEpisode(resume.episode);
+          setLastWatched(resume);
+          setWatching(true);
+        }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoadedFor(id); });
@@ -183,6 +193,17 @@ export default function MovieModal({
   const title = detail?.title ?? movie.title;
   const year = detail?.year ?? movie.year;
   const poster = movie.poster ?? detail?.poster;
+
+  // Keep the URL on what's open, so a refresh lands back here (series: on this episode).
+  useEffect(() => {
+    if (!ready) return;
+    const playingEpisode = isSeries && watching;
+    writeTitleUrl({
+      id: resolvedId ?? movie.id,
+      season: playingEpisode ? season : undefined,
+      episode: playingEpisode ? episode : undefined,
+    });
+  }, [ready, resolvedId, movie.id, isSeries, watching, season, episode]);
   const listIds = resolvedId ? listIdsFor(resolvedId) : new Set<number>();
   // Letterboxd is films only; its /imdb/<id>/ address lands on the film's page (rating stars up top).
   const letterboxdUrl = !isSeries && resolvedId ? `https://letterboxd.com/imdb/${resolvedId}/` : undefined;

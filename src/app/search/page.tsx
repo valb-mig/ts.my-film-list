@@ -12,6 +12,7 @@ import SearchBar from "@/components/SearchBar";
 import NonWatchableAccordion from "@/components/NonWatchableAccordion";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
+import { useOpenTitle } from "@/hooks/useOpenTitle";
 import { useLists } from "@/hooks/useLists";
 import { isWatchable } from "@/lib/watchable";
 import { randomLoadingMessage } from "@/lib/searchLoadingMessages";
@@ -23,7 +24,7 @@ function SearchResults() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState(() => randomLoadingMessage());
-  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [selectedMovie, setSelectedMovie] = useOpenTitle();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
 
