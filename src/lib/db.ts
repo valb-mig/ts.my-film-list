@@ -2,7 +2,10 @@ import { createClient } from "@libsql/client";
 import path from "path";
 import fs from "fs";
 
-const dbPath = path.join(process.cwd(), "data", "watchlist.db");
+// DATA_DIR lets the production server (scripts/serve.sh) keep using the checkout's data/ while it
+// runs from inside the build output — never link data/ into the build: `next build` empties its
+// output dir and follows symlinks while doing it.
+const dbPath = path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "watchlist.db");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = createClient({ url: `file:${dbPath}` });
