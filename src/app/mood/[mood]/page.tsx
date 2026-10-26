@@ -218,6 +218,7 @@ export default function MoodPage() {
       {selectedMovie && (
         <MovieModal
           movie={selectedMovie}
+          onSelectMovie={setSelectedMovie}
           onClose={() => setSelectedMovie(null)}
           lists={lists}
           listIdsFor={listIdsFor}

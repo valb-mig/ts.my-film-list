@@ -137,6 +137,7 @@ export default function Home() {
       {selectedMovie && (
         <MovieModal
           movie={selectedMovie}
+          onSelectMovie={setSelectedMovie}
           onClose={() => setSelectedMovie(null)}
           lists={lists}
           listIdsFor={listIdsFor}

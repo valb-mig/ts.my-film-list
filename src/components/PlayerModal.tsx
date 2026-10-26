@@ -21,9 +21,15 @@ import {
 interface Props {
   title: string;
   label: string;
-  embedUrl: string;
+  // null while there's no source to show — still `searching` for one, or none found; `status`
+  // is the message shown in its place.
+  embedUrl: string | null;
+  searching?: boolean;
+  status?: string;
   subtitles: SubtitleResult[];
   onClose: () => void;
+  // Shown beside the video when not in theater mode (details, saving, recommendations).
+  aside?: React.ReactNode;
 }
 
 interface SubtitleOption {
@@ -50,10 +56,29 @@ function formatSeconds(seconds: number): string {
 
 const SAMPLE_TEXT = "Arraste a legenda\npra onde quiser";
 
+// Theater mode (the video fills the window, everything else black) is the default and sticks.
+const THEATER_KEY = "playerTheater";
+// The bar hides after the mouse rests this long outside it…
+const IDLE_MS = 2500;
+// …or this long after the player hides its own cursor (mouse resting over the video).
+const AFTER_PLAYER_IDLE_MS = 1500;
+
+function loadTheater(): boolean {
+  try {
+    return localStorage.getItem(THEATER_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function isTyping(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+}
+
 const barButton =
   "px-2.5 h-7 rounded-lg text-xs font-medium text-[#9a8878] hover:text-[#f0e8dc] bg-white/[0.06] hover:bg-white/[0.12] transition-colors disabled:opacity-40 outline-none focus:ring-2 focus:ring-[#d4845a] focus:text-[#f0e8dc]";
 
-export default function PlayerModal({ title, label, embedUrl, subtitles, onClose }: Props) {
+export default function PlayerModal({ title, label, embedUrl, searching = false, status, subtitles, onClose, aside }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const clockRef = useRef(new PlayerClock());
@@ -78,38 +103,77 @@ export default function PlayerModal({ title, label, embedUrl, subtitles, onClose
   const [editing, setEditing] = useState(false);
   // Inside the projector hub: no header, the video fills the screen, no drag (remote has no mouse drag).
   const [tv] = useState(isTvMode);
-  // The bar normally follows the player's cursor; with a remote there's no cursor, so key presses
-  // (and focus inside the bar) keep it up too.
-  const [keyAwake, setKeyAwake] = useState(tv);
+  const [theater, setTheater] = useState(loadTheater);
+  // Video alone on screen: theater mode, or always on a TV.
+  const wide = tv || theater;
   const [barFocused, setBarFocused] = useState(false);
+
+  // The bar shows on any activity — mouse moving over our page, the player showing its cursor
+  // (mouse moving over the video), a key press — and hides once the mouse rests outside it.
+  const [barActive, setBarActive] = useState(true);
+  const hoveringBar = useRef(false);
+  const idleTimer = useRef<ReturnType<typeof setTimeout>>();
+  const scheduleHide = useCallback((ms: number) => {
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (!hoveringBar.current) setBarActive(false);
+    }, ms);
+  }, []);
+  // Shows the bar; hides it again after `hideAfter` ms of quiet (null: stay until told otherwise).
+  const wakeBar = useCallback((hideAfter: number | null) => {
+    setBarActive(true);
+    if (hideAfter === null) clearTimeout(idleTimer.current);
+    else scheduleHide(hideAfter);
+  }, [scheduleHide]);
+
+  const toggleTheater = useCallback(() => {
+    setTheater((t) => {
+      try {
+        localStorage.setItem(THEATER_KEY, t ? "0" : "1");
+      } catch {
+        // Storage blocked — the choice just won't stick.
+      }
+      return !t;
+    });
+  }, []);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (editing) setEditing(false);
-      // In fullscreen, Escape just leaves fullscreen.
-      else if (!document.fullscreenElement) onClose();
+      if (e.key === "Escape") {
+        if (editing) setEditing(false);
+        // In fullscreen, Escape just leaves fullscreen.
+        else if (!document.fullscreenElement) onClose();
+      } else if ((e.key === "t" || e.key === "T") && !tv && !isTyping(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        toggleTheater();
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, editing]);
+  }, [onClose, editing, tv, toggleTheater]);
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const wake = () => {
-      setKeyAwake(true);
-      clearTimeout(timer);
-      timer = setTimeout(() => setKeyAwake(false), 5000);
+    const onKey = () => wakeBar(5000);
+    // Browsers also fire mousemove without any movement (when layout changes under a resting
+    // cursor — e.g. this very bar fading out); only a real change of position counts.
+    let lastX = -1;
+    let lastY = -1;
+    const onMouse = (e: MouseEvent) => {
+      if (e.clientX === lastX && e.clientY === lastY) return;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      wakeBar(IDLE_MS);
     };
-    // Capture phase on window: the hub's TV-mode script stops arrow keys from propagating further.
-    window.addEventListener("keydown", wake, true);
-    // On a TV the bar starts visible (so you see the subtitle controls exist), then hides itself.
-    if (tv) wake();
+    // Capture phase on window: the TV navigation stops arrow keys from propagating further.
+    window.addEventListener("keydown", onKey, true);
+    document.addEventListener("mousemove", onMouse);
+    // Starts visible (so you see the controls exist), then hides itself.
+    wakeBar(tv ? 5000 : 4000);
     return () => {
-      window.removeEventListener("keydown", wake, true);
-      clearTimeout(timer);
+      window.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("mousemove", onMouse);
+      clearTimeout(idleTimer.current);
     };
-  }, [tv]);
+  }, [tv, wakeBar]);
 
   useEffect(() => {
     const handleChange = () => setIsFullscreen(document.fullscreenElement === stageRef.current);
@@ -122,12 +186,21 @@ export default function PlayerModal({ title, label, embedUrl, subtitles, onClose
       if (e.source !== iframeRef.current?.contentWindow) return;
       clockRef.current.handle(e.data);
       const type = (e.data as { type?: unknown } | null)?.type;
-      if (type === "CURSOR_SHOW") setCursorVisible(true);
-      if (type === "CURSOR_HIDE") setCursorVisible(false);
+      if (type === "CURSOR_SHOW") {
+        setCursorVisible(true);
+        // The mouse is over the video, so it isn't over the bar — even if the browser never told us
+        // it left (leaving into a cross-origin iframe doesn't always fire mouseleave).
+        hoveringBar.current = false;
+        wakeBar(null);
+      }
+      if (type === "CURSOR_HIDE") {
+        setCursorVisible(false);
+        wakeBar(AFTER_PLAYER_IDLE_MS);
+      }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [wakeBar]);
 
   useEffect(() => {
     setCues(null);
@@ -208,23 +281,25 @@ export default function PlayerModal({ title, label, embedUrl, subtitles, onClose
     else stageRef.current?.requestFullscreen().catch(() => {});
   };
 
-  const showBar = cursorVisible || keyAwake || barFocused || marking !== null || toast !== null || editing;
+  const showBar = barActive || barFocused || marking !== null || toast !== null || editing;
 
   return (
-    <div data-tv-layer className="fixed inset-0 z-[60] flex flex-col bg-black/95 backdrop-blur-lg">
-      <div className={`flex items-center gap-3 px-4 py-3 ${tv ? "hidden" : ""}`}>
+    <div data-tv-layer className={`fixed inset-0 z-[60] flex flex-col ${wide ? "bg-black" : "bg-black/95 backdrop-blur-lg"}`}>
+      <div className={`flex items-center gap-3 px-4 py-3 ${wide ? "hidden" : ""}`}>
         <div className="flex-1 min-w-0">
           <p className="text-[#f0e8dc] font-bold text-sm truncate">{title}</p>
           <p className="text-[#5a4e46] text-xs">{label}</p>
         </div>
-        <a
-          href={embedUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[#5a4e46] hover:text-[#9a8878] text-xs transition-colors"
-        >
-          Abrir em nova aba ↗
-        </a>
+        {embedUrl && (
+          <a
+            href={embedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#5a4e46] hover:text-[#9a8878] text-xs transition-colors"
+          >
+            Abrir em nova aba ↗
+          </a>
+        )}
         <button
           onClick={onClose}
           className="p-2 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-[#9a8878] hover:text-[#f0e8dc] transition-colors"
@@ -236,174 +311,212 @@ export default function PlayerModal({ title, label, embedUrl, subtitles, onClose
         </button>
       </div>
 
-      <div className={`flex-1 min-h-0 flex items-center justify-center ${tv ? "" : "px-4 pb-4"}`}>
-        <div
-          ref={stageRef}
-          className={`relative w-full max-h-full aspect-video overflow-hidden bg-black [container-type:inline-size] [&:fullscreen]:rounded-none [&:fullscreen]:border-0 ${
-            tv ? "max-w-[calc(100vh*16/9)]" : "max-w-[calc((100vh-6rem)*16/9)] rounded-2xl border border-white/[0.06]"
-          }`}
-        >
-          {/* No sandbox: the player refuses to load inside a sandboxed frame — popups it opens are
-              closed by extensions/firefox-popup-closer. No fullscreen either: the player's own
-              fullscreen would hide our subtitle overlay, so fullscreen goes through the stage. */}
-          <iframe
-            ref={iframeRef}
-            src={embedUrl}
-            className="w-full h-full"
-            allow="autoplay; picture-in-picture; encrypted-media"
-          />
-
-          <SubtitleLayer
-            text={editing ? text || SAMPLE_TEXT : text}
-            style={style}
-            raised={cursorVisible}
-            editing={editing}
-            onMove={(position) => updateStyle({ position })}
-            onScaleStep={(delta) => updateStyle({ scale: clampScale(style.scale + delta) })}
-          />
-
-          {/* Only the panels themselves take clicks — the strip around them stays clickable for the player. */}
+      <div className={`flex-1 min-h-0 flex ${wide ? "" : "gap-5 px-4 pb-4"}`}>
+        <div className={`flex-1 min-w-0 flex justify-center ${wide ? "items-center" : "items-start"}`}>
           <div
-            className={`pointer-events-none absolute top-3 inset-x-3 flex flex-col items-center gap-2 transition-opacity duration-200 ${
-              showBar ? "opacity-100 [&>*]:pointer-events-auto" : "opacity-0"
-            } ${tv ? "[zoom:1.8]" : ""}`}
-            onFocus={() => setBarFocused(true)}
-            onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setBarFocused(false); }}
+            ref={stageRef}
+            className={`relative w-full max-h-full aspect-video overflow-hidden bg-black [container-type:inline-size] [&:fullscreen]:rounded-none [&:fullscreen]:border-0 ${
+              wide ? "max-w-[calc(100vh*16/9)]" : "max-w-[calc((100vh-6rem)*16/9)] rounded-2xl border border-white/[0.06]"
+            }`}
           >
-            <div className="flex items-center gap-1.5 flex-wrap justify-center rounded-xl px-2 py-1.5 bg-black/75 backdrop-blur border border-white/[0.08]">
-              <select
-                value={selectedUrl}
-                onChange={(e) => setChoice(e.target.value)}
-                aria-label="Legenda"
-                className="h-7 max-w-[14rem] truncate rounded-lg px-2 text-xs font-medium bg-white/[0.06] text-[#f0e8dc] border border-white/[0.08] outline-none cursor-pointer focus:ring-2 focus:ring-[#d4845a]"
-                style={{ colorScheme: "dark" }}
-              >
-                {options.length === 0 && <option value="">Sem legenda</option>}
-                {options.map((o) => (
-                  <option key={o.url} value={o.url}>Legenda {o.label}</option>
-                ))}
-                {options.length > 0 && <option value="">Legenda desligada</option>}
-              </select>
+            {/* No sandbox: the player refuses to load inside a sandboxed frame — popups it opens are
+                closed by extensions/firefox-popup-closer. No fullscreen either: the player's own
+                fullscreen would hide our subtitle overlay, so fullscreen goes through the stage. */}
+            {embedUrl ? (
+              <iframe
+                ref={iframeRef}
+                src={embedUrl}
+                className="w-full h-full"
+                allow="autoplay; picture-in-picture; encrypted-media"
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center px-6">
+                {searching && (
+                  <span className="w-10 h-10 rounded-full border-[3px] border-white/10 border-t-[#d4845a] animate-spin" />
+                )}
+                <p className="text-sm text-[#9a8878]">{status ?? "Carregando…"}</p>
+              </div>
+            )}
 
-              {cueStatus === "loading" && <span className="text-[#9a8878] text-xs px-1">Carregando…</span>}
-              {cueStatus === "error" && <span className="text-[#d4845a] text-xs px-1">Não consegui carregar</span>}
+            <SubtitleLayer
+              text={editing ? text || SAMPLE_TEXT : text}
+              style={style}
+              raised={cursorVisible}
+              editing={editing}
+              onMove={(position) => updateStyle({ position })}
+              onScaleStep={(delta) => updateStyle({ scale: clampScale(style.scale + delta) })}
+            />
 
-              {cueStatus === "ready" && (
-                <>
-                  <button
-                    onClick={() => updateSync(nudge(sync, -0.5))}
-                    className={barButton}
-                    title="Legenda aparece meio segundo mais cedo"
-                  >
-                    −0,5s
-                  </button>
-                  <span className="text-[#f0e8dc] text-xs tabular-nums w-12 text-center" title="Atraso da legenda">
-                    {formatSeconds(sync.offset)}
-                  </span>
-                  <button
-                    onClick={() => updateSync(nudge(sync, 0.5))}
-                    className={barButton}
-                    title="Legenda aparece meio segundo mais tarde"
-                  >
-                    +0,5s
-                  </button>
-                  <button onClick={startMarking} className={barButton}>Sincronizar pela fala</button>
-                  {(sync.offset !== 0 || sync.scale !== 1) && (
-                    <button onClick={() => updateSync(NO_SYNC)} className={barButton} title="Desfazer ajustes">
-                      Zerar
-                    </button>
-                  )}
+            {/* Only the panels themselves take clicks — the strip around them stays clickable for the player. */}
+            <div
+              className={`pointer-events-none absolute top-3 inset-x-3 flex flex-col items-center gap-2 transition-opacity duration-200 ${
+                showBar ? "opacity-100 [&>*]:pointer-events-auto" : "opacity-0"
+              } ${tv ? "[zoom:1.8]" : ""}`}
+              onFocus={() => setBarFocused(true)}
+              onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setBarFocused(false); }}
+              onMouseEnter={() => { hoveringBar.current = true; wakeBar(null); }}
+              onMouseLeave={() => { hoveringBar.current = false; scheduleHide(IDLE_MS); }}
+            >
+              <div className="flex items-center gap-1.5 flex-wrap justify-center rounded-xl px-2 py-1.5 bg-black/75 backdrop-blur border border-white/[0.08]">
+                <select
+                  value={selectedUrl}
+                  onChange={(e) => setChoice(e.target.value)}
+                  aria-label="Legenda"
+                  className="h-7 max-w-[14rem] truncate rounded-lg px-2 text-xs font-medium bg-white/[0.06] text-[#f0e8dc] border border-white/[0.08] outline-none cursor-pointer focus:ring-2 focus:ring-[#d4845a]"
+                  style={{ colorScheme: "dark" }}
+                >
+                  {options.length === 0 && <option value="">Sem legenda</option>}
+                  {options.map((o) => (
+                    <option key={o.url} value={o.url}>Legenda {o.label}</option>
+                  ))}
+                  {options.length > 0 && <option value="">Legenda desligada</option>}
+                </select>
 
-                  <span className="w-px h-4 bg-white/[0.12] mx-0.5" />
+                {cueStatus === "loading" && <span className="text-[#9a8878] text-xs px-1">Carregando…</span>}
+                {cueStatus === "error" && <span className="text-[#d4845a] text-xs px-1">Não consegui carregar</span>}
 
-                  <button
-                    onClick={() => updateStyle({ scale: clampScale(style.scale - 0.1) })}
-                    className={barButton}
-                    aria-label="Diminuir legenda"
-                  >
-                    A−
-                  </button>
-                  <span className="text-[#f0e8dc] text-xs tabular-nums w-10 text-center" title="Tamanho da legenda">
-                    {Math.round(style.scale * 100)}%
-                  </span>
-                  <button
-                    onClick={() => updateStyle({ scale: clampScale(style.scale + 0.1) })}
-                    className={barButton}
-                    aria-label="Aumentar legenda"
-                  >
-                    A+
-                  </button>
-                  {!tv && (
+                {cueStatus === "ready" && (
+                  <>
                     <button
-                      onClick={() => setEditing((e) => !e)}
-                      className={`${barButton} ${editing ? "!bg-[#d4845a] !text-white" : ""}`}
-                      title="Arrastar a legenda pra qualquer lugar do vídeo"
+                      onClick={() => updateSync(nudge(sync, -0.5))}
+                      className={barButton}
+                      title="Legenda aparece meio segundo mais cedo"
                     >
-                      {editing ? "Pronto" : "Mover"}
+                      −0,5s
                     </button>
-                  )}
-                </>
+                    <span className="text-[#f0e8dc] text-xs tabular-nums w-12 text-center" title="Atraso da legenda">
+                      {formatSeconds(sync.offset)}
+                    </span>
+                    <button
+                      onClick={() => updateSync(nudge(sync, 0.5))}
+                      className={barButton}
+                      title="Legenda aparece meio segundo mais tarde"
+                    >
+                      +0,5s
+                    </button>
+                    <button onClick={startMarking} className={barButton}>Sincronizar pela fala</button>
+                    {(sync.offset !== 0 || sync.scale !== 1) && (
+                      <button onClick={() => updateSync(NO_SYNC)} className={barButton} title="Desfazer ajustes">
+                        Zerar
+                      </button>
+                    )}
+
+                    <span className="w-px h-4 bg-white/[0.12] mx-0.5" />
+
+                    <button
+                      onClick={() => updateStyle({ scale: clampScale(style.scale - 0.1) })}
+                      className={barButton}
+                      aria-label="Diminuir legenda"
+                    >
+                      A−
+                    </button>
+                    <span className="text-[#f0e8dc] text-xs tabular-nums w-10 text-center" title="Tamanho da legenda">
+                      {Math.round(style.scale * 100)}%
+                    </span>
+                    <button
+                      onClick={() => updateStyle({ scale: clampScale(style.scale + 0.1) })}
+                      className={barButton}
+                      aria-label="Aumentar legenda"
+                    >
+                      A+
+                    </button>
+                    {!tv && (
+                      <button
+                        onClick={() => setEditing((e) => !e)}
+                        className={`${barButton} ${editing ? "!bg-[#d4845a] !text-white" : ""}`}
+                        title="Arrastar a legenda pra qualquer lugar do vídeo"
+                      >
+                        {editing ? "Pronto" : "Mover"}
+                      </button>
+                    )}
+                  </>
+                )}
+
+                <button
+                  onClick={toggleFullscreen}
+                  className={barButton}
+                  aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
+                >
+                  <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24">
+                    {isFullscreen ? (
+                      <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+                    ) : (
+                      <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+                    )}
+                  </svg>
+                </button>
+                {!tv && (
+                  <button
+                    onClick={toggleTheater}
+                    className={`${barButton} ${theater ? "!bg-[#d4845a]/25 !text-[#d4845a]" : ""}`}
+                    aria-label={theater ? "Sair do modo teatro" : "Modo teatro"}
+                    title={theater ? "Sair do modo teatro (T)" : "Modo teatro (T)"}
+                  >
+                    <svg width="14" height="13" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M19 6H5c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H5V8h14v8z" />
+                    </svg>
+                  </button>
+                )}
+                {wide && !tv && (
+                  <button onClick={onClose} className={barButton} aria-label="Fechar player" title="Fechar (Esc)">
+                    <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {marking !== null && cues && (
+                <div className="flex flex-col items-center gap-2 max-w-xl rounded-xl px-4 py-3 bg-black/85 backdrop-blur border border-[#d4845a]/40">
+                  <p className="text-[#9a8878] text-[11px]">Clique em <b className="text-[#f0e8dc]">Agora!</b> quando ouvir esta fala:</p>
+                  <p className="text-[#f0e8dc] text-sm text-center whitespace-pre-line">“{cues[marking].text}”</p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setMarking((i) => Math.max(0, (i ?? 0) - 1))}
+                      className={barButton}
+                      aria-label="Fala anterior"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      onClick={confirmMark}
+                      className="px-4 h-8 rounded-lg text-sm font-bold bg-[#d4845a] hover:bg-[#c07448] text-white transition-colors outline-none focus:ring-2 focus:ring-[#f0e8dc]"
+                    >
+                      Agora!
+                    </button>
+                    <button
+                      onClick={() => setMarking((i) => Math.min(cues.length - 1, (i ?? 0) + 1))}
+                      className={barButton}
+                      aria-label="Próxima fala"
+                    >
+                      ›
+                    </button>
+                    <button onClick={() => setMarking(null)} className={barButton}>Cancelar</button>
+                  </div>
+                </div>
               )}
 
-              <button
-                onClick={toggleFullscreen}
-                className={barButton}
-                aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
-              >
-                <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24">
-                  {isFullscreen ? (
-                    <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
-                  ) : (
-                    <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
-                  )}
-                </svg>
-              </button>
-            </div>
-
-            {marking !== null && cues && (
-              <div className="flex flex-col items-center gap-2 max-w-xl rounded-xl px-4 py-3 bg-black/85 backdrop-blur border border-[#d4845a]/40">
-                <p className="text-[#9a8878] text-[11px]">Clique em <b className="text-[#f0e8dc]">Agora!</b> quando ouvir esta fala:</p>
-                <p className="text-[#f0e8dc] text-sm text-center whitespace-pre-line">“{cues[marking].text}”</p>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setMarking((i) => Math.max(0, (i ?? 0) - 1))}
-                    className={barButton}
-                    aria-label="Fala anterior"
-                  >
-                    ‹
-                  </button>
-                  <button
-                    onClick={confirmMark}
-                    className="px-4 h-8 rounded-lg text-sm font-bold bg-[#d4845a] hover:bg-[#c07448] text-white transition-colors outline-none focus:ring-2 focus:ring-[#f0e8dc]"
-                  >
-                    Agora!
-                  </button>
-                  <button
-                    onClick={() => setMarking((i) => Math.min(cues.length - 1, (i ?? 0) + 1))}
-                    className={barButton}
-                    aria-label="Próxima fala"
-                  >
-                    ›
-                  </button>
-                  <button onClick={() => setMarking(null)} className={barButton}>Cancelar</button>
+              {editing && (
+                <div className="flex items-center gap-2 rounded-xl px-3 py-2 bg-black/85 backdrop-blur border border-[#d4845a]/40">
+                  <p className="text-[#9a8878] text-xs">
+                    Arraste a legenda pra qualquer lugar · roda do mouse muda o tamanho
+                  </p>
+                  <button onClick={() => updateStyle({ position: null })} className={barButton}>Posição padrão</button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {editing && (
-              <div className="flex items-center gap-2 rounded-xl px-3 py-2 bg-black/85 backdrop-blur border border-[#d4845a]/40">
-                <p className="text-[#9a8878] text-xs">
-                  Arraste a legenda pra qualquer lugar · roda do mouse muda o tamanho
-                </p>
-                <button onClick={() => updateStyle({ position: null })} className={barButton}>Posição padrão</button>
-              </div>
-            )}
-
-            {toast && (
-              <p className="rounded-lg px-3 py-1.5 bg-black/85 text-[#f0e8dc] text-xs border border-white/[0.08]">{toast}</p>
-            )}
+              {toast && (
+                <p className="rounded-lg px-3 py-1.5 bg-black/85 text-[#f0e8dc] text-xs border border-white/[0.08]">{toast}</p>
+              )}
+            </div>
           </div>
         </div>
+
+        {!wide && aside && (
+          <aside className="hidden lg:block w-[340px] xl:w-[380px] shrink-0 min-h-0 overflow-y-auto pr-1 [scrollbar-width:thin]">
+            {aside}
+          </aside>
+        )}
       </div>
     </div>
   );
