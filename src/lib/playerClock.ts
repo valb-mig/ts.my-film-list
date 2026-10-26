@@ -14,6 +14,8 @@ export class PlayerClock {
   // Typical gap between reports while playing (ms) — bounds how far we extrapolate, so a pause
   // or stall the player doesn't announce doesn't let subtitles run ahead for long.
   private gap = 5000;
+  // Length of what's playing, in seconds, once the player has said.
+  private duration = 0;
 
   // Returns true if the message carried playback info.
   handle(data: unknown): boolean {
@@ -22,6 +24,7 @@ export class PlayerClock {
 
     if (d.type === "PLAYER_EVENT" && d.data && typeof d.data === "object") {
       const e = d.data as Record<string, unknown>;
+      if (typeof e.player_duration === "number" && e.player_duration > 0) this.duration = e.player_duration;
       if (typeof e.player_progress !== "number") return false;
       const status = String(e.player_status);
       const playing = status === "playing" ? true : STOPPED.has(status) ? false : this.playing;
@@ -32,6 +35,7 @@ export class PlayerClock {
     if (d.type === "STORAGE_SET" && typeof d.key === "string" && d.key.startsWith("watch_") && typeof d.value === "string") {
       try {
         const v = JSON.parse(d.value);
+        if (typeof v.duration === "number" && v.duration > 0) this.duration = v.duration;
         if (typeof v.time !== "number") return false;
         const at = typeof v.timestamp === "number" ? performance.now() - (Date.now() - v.timestamp) : performance.now();
         this.report(v.time, at, this.playing);
@@ -50,6 +54,22 @@ export class PlayerClock {
     if (!this.playing) return this.time;
     const elapsed = Math.min(performance.now() - this.at, Math.max(2000, this.gap * 1.6));
     return this.time + elapsed / 1000;
+  }
+
+  isPlaying(): boolean {
+    return this.playing;
+  }
+
+  // Seconds left, or null until the player has reported time and duration.
+  remaining(): number | null {
+    const now = this.now();
+    return now === null || !this.duration ? null : Math.max(0, this.duration - now);
+  }
+
+  // How much has been watched, 0–1, or null until the player has reported time and duration.
+  progress(): number | null {
+    const now = this.now();
+    return now === null || !this.duration ? null : Math.min(1, now / this.duration);
   }
 
   private report(time: number, at: number, playing: boolean) {

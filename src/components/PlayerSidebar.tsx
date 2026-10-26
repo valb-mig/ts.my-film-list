@@ -23,6 +23,8 @@ interface Props {
   onToggleList: (listId: number) => void;
   onCreateList: (name: string) => void;
   onPick: (movie: Movie) => void;
+  // Films: where to rate it.
+  letterboxdUrl?: string;
   // Series only: the episode list, with what's playing marked; picking one plays it.
   series?: {
     seasons: { number: number; episodeCount: number }[];
@@ -40,7 +42,8 @@ const on = "bg-[#d4845a]/20 text-[#d4845a] hover:bg-[#d4845a]/30";
 // Beside the player when it isn't in theater mode: what you're watching, saving it, the episodes
 // (series) and what to watch next.
 export default function PlayerSidebar({
-  id, detail, favorited, onToggleFavorite, saved, onToggleSave, lists, listIds, onToggleList, onCreateList, onPick, series,
+  id, detail, favorited, onToggleFavorite, saved, onToggleSave, lists, listIds, onToggleList, onCreateList, onPick,
+  letterboxdUrl, series,
 }: Props) {
   const [recommended, setRecommended] = useState<Movie[] | null>(null);
   const [listsOpen, setListsOpen] = useState(false);
@@ -107,6 +110,24 @@ export default function PlayerSidebar({
           </button>
         </div>
         {listsOpen && <ListsPicker lists={lists} listIds={listIds} onToggleList={onToggleList} onCreateList={onCreateList} />}
+        {id && (
+          <div className="flex gap-2">
+            {letterboxdUrl && (
+              <a
+                href={letterboxdUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${action} ${idle} flex-[2]`}
+              >
+                <Icon name="star" />
+                Avaliar no Letterboxd ↗
+              </a>
+            )}
+            <a href={`https://www.imdb.com/title/${id}/`} target="_blank" rel="noopener noreferrer" className={`${action} ${idle}`}>
+              IMDb ↗
+            </a>
+          </div>
+        )}
       </div>
 
       {series && id && (

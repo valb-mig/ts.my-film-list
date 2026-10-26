@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import type { Movie } from "@/types/imdb";
-import type { MovieDetail } from "@/lib/datasource";
+import type { EpisodeInfo, MovieDetail } from "@/lib/datasource";
+import { nextEpisode, seasonEpisodes } from "@/lib/episodes";
 import type { StreamResult, StreamServer, SubtitleResult } from "@/lib/scrapers/types";
 import type { ListInfo } from "@/hooks/useLists";
 import { sourceQuery, useSourceList } from "@/hooks/useSourceList";
@@ -97,11 +98,27 @@ export default function TvDetail({
     else setPendingPlay(true);
   };
 
-  const playEpisode = (n: number) => {
+  const playEpisode = (n: number, s = season) => {
+    setSeason(s);
     setEpisode(n);
     setMessage(null);
     setPendingPlay(true);
   };
+
+  // What plays after this episode (next-episode card in the player), with its name and still.
+  const upNext = isSeries ? nextEpisode(seasons, season, episode) : null;
+  const [upNextInfo, setUpNextInfo] = useState<EpisodeInfo | null>(null);
+  useEffect(() => {
+    setUpNextInfo(null);
+    if (!upNext || !id || !playing) return;
+    let cancelled = false;
+    seasonEpisodes(id, upNext.season).then((eps) => {
+      if (!cancelled) setUpNextInfo(eps.find((e) => e.number === upNext.episode) ?? null);
+    });
+    return () => { cancelled = true; };
+    // upNext is rebuilt every render; its season/episode are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, upNext?.season, upNext?.episode, Boolean(playing)]);
 
   const meta = [
     year,
@@ -247,11 +264,23 @@ export default function TvDetail({
 
       {playing && (
         <PlayerModal
+          // A new episode is a new player: fresh subtitle choice, sync and playback clock.
+          key={playing.embedUrl}
           title={isSeries ? `${title} · T${season} E${episode}` : title}
           label={playing.label}
           embedUrl={playing.embedUrl}
           subtitles={subtitles}
           onClose={() => setPlaying(null)}
+          next={
+            upNext
+              ? {
+                  label: `T${upNext.season} E${upNext.episode}`,
+                  name: upNextInfo?.name,
+                  still: upNextInfo?.still,
+                  onPlay: () => playEpisode(upNext.episode, upNext.season),
+                }
+              : undefined
+          }
         />
       )}
     </TvLayer>
