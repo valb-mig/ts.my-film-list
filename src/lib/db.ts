@@ -11,21 +11,10 @@ let initialized = false;
 
 export async function ensureInit() {
   if (initialized) return;
+  // Only what the user saves on purpose lives here: favorites and named lists. Everything else
+  // (metadata, search) comes live from the data source.
   await db.batch(
     [
-      `CREATE TABLE IF NOT EXISTS watchlist (
-        imdb_id    TEXT PRIMARY KEY,
-        title      TEXT NOT NULL,
-        year       INTEGER,
-        poster_url TEXT,
-        rating     REAL,
-        added_at   INTEGER NOT NULL DEFAULT (unixepoch())
-      )`,
-      `CREATE TABLE IF NOT EXISTS search_history (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        query       TEXT NOT NULL,
-        searched_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )`,
       `CREATE TABLE IF NOT EXISTS favorites (
         imdb_id    TEXT PRIMARY KEY,
         title      TEXT NOT NULL,
@@ -33,24 +22,6 @@ export async function ensureInit() {
         poster_url TEXT,
         rating     REAL,
         added_at   INTEGER NOT NULL DEFAULT (unixepoch())
-      )`,
-      `CREATE TABLE IF NOT EXISTS history_movies (
-        history_id    INTEGER NOT NULL,
-        imdb_id       TEXT NOT NULL,
-        title         TEXT NOT NULL,
-        year          INTEGER,
-        poster_url    TEXT,
-        type          TEXT,
-        genres_json   TEXT,
-        first_seen_at INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (history_id, imdb_id)
-      )`,
-      `CREATE TABLE IF NOT EXISTS watched (
-        imdb_id    TEXT PRIMARY KEY,
-        title      TEXT NOT NULL,
-        year       INTEGER,
-        poster_url TEXT,
-        watched_at INTEGER NOT NULL DEFAULT (unixepoch())
       )`,
       `CREATE TABLE IF NOT EXISTS lists (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,29 +38,18 @@ export async function ensureInit() {
         added_at   INTEGER NOT NULL DEFAULT (unixepoch()),
         PRIMARY KEY (list_id, imdb_id)
       )`,
+      // Dropped features: browsing history ("Explorado"), search history and watched tracking.
+      "DROP TABLE IF EXISTS history_movies",
+      "DROP TABLE IF EXISTS search_history",
+      "DROP TABLE IF EXISTS watched",
     ],
     "write"
   );
 
-  // Migration: add first_seen_at to existing tables that lack it
-  try {
-    await db.execute("ALTER TABLE history_movies ADD COLUMN first_seen_at INTEGER NOT NULL DEFAULT 0");
-  } catch {
-    // Column already exists — ignore
-  }
-
-  // Migration: add duration_min, filled in lazily when the user opens a movie's detail
-  try {
-    await db.execute("ALTER TABLE history_movies ADD COLUMN duration_min INTEGER");
-  } catch {
-    // Column already exists — ignore
-  }
-
-  // Migration: the single `watchlist` table is replaced by named lists (`lists` + `list_items`).
-  // Runs once — moves any existing watchlist rows into a default "Minha Lista" and empties the
-  // old table so this block is a no-op on subsequent boots.
-  const listsCount = await db.execute("SELECT COUNT(*) as c FROM lists");
-  if (Number(listsCount.rows[0]?.c ?? 0) === 0) {
+  // Migration: the old single `watchlist` table becomes a default "Minha Lista" (named lists),
+  // then goes away. Only databases from before named lists still have it.
+  const legacy = await db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'watchlist'");
+  if (legacy.rows.length > 0) {
     const oldRows = await db.execute("SELECT * FROM watchlist");
     if (oldRows.rows.length > 0) {
       const defaultList = await db.execute({
@@ -105,8 +65,8 @@ export async function ensureInit() {
         })),
         "write"
       );
-      await db.execute("DELETE FROM watchlist");
     }
+    await db.execute("DROP TABLE watchlist");
   }
 
   initialized = true;

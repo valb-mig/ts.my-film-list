@@ -7,10 +7,8 @@ import SearchBar from "@/components/SearchBar";
 import MovieModal from "@/components/MovieModal";
 import ListsDrawer from "@/components/ListsDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
-import DbDrawer from "@/components/DbDrawer";
 import HeroSpotlight from "@/components/HeroSpotlight";
 import HomeSections from "@/components/HomeSections";
-import ExploredTabs from "@/components/ExploredTabs";
 import RouletteSection from "@/components/RouletteSection";
 import { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
@@ -20,28 +18,22 @@ export default function Home() {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
-  const [dbDrawerOpen, setDbDrawerOpen] = useState(false);
-  const [historyTrigger, setHistoryTrigger] = useState(0);
+  const [listsTrigger, setListsTrigger] = useState(0);
 
-  const { favoriteIds, watchedIds, handleFavoriteToggle, handleWatchedToggle: baseWatchedToggle } = useCollections();
+  const { favoriteIds, handleFavoriteToggle } = useCollections();
   const { lists, membership, listIdsFor, createList, renameList, deleteList, addToList: baseAddToList, removeFromList: baseRemoveFromList } = useLists();
 
   const watchlistIds = useMemo(() => new Set(membership.keys()), [membership]);
 
   const addToList = useCallback(async (listId: number, movie: Movie, rating?: number) => {
     await baseAddToList(listId, movie, rating);
-    setHistoryTrigger((t) => t + 1);
+    setListsTrigger((t) => t + 1);
   }, [baseAddToList]);
 
   const removeFromList = useCallback(async (listId: number, imdbId: string) => {
     await baseRemoveFromList(listId, imdbId);
-    setHistoryTrigger((t) => t + 1);
+    setListsTrigger((t) => t + 1);
   }, [baseRemoveFromList]);
-
-  const handleWatchedToggle = useCallback((imdbId: string, watched: boolean) => {
-    baseWatchedToggle(imdbId, watched);
-    setHistoryTrigger((t) => t + 1);
-  }, [baseWatchedToggle]);
 
   return (
     <div className="min-h-screen bg-[#0a0906]">
@@ -68,17 +60,6 @@ export default function Home() {
 
           {/* Collection buttons */}
           <div className="flex items-center gap-1 sm:gap-2 ml-auto">
-            <button
-              onClick={() => setDbDrawerOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-all text-xs font-medium"
-              aria-label="Base de Dados"
-            >
-              <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M20 6H4V4h16v2zm0 4H4V8h16v2zm-8 8H4v-2h8v2zm0-4H4v-2h8v2zm5 1v3h-2v-3h-3v-2h3v-3h2v3h3v2h-3z" />
-              </svg>
-              <span className="hidden sm:block">Banco</span>
-            </button>
-
             <button
               onClick={() => setFavoritesDrawerOpen(true)}
               className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-all text-xs font-medium"
@@ -122,18 +103,12 @@ export default function Home() {
         onRemoveFromList={removeFromList}
         onCreateList={createList}
         onSelectMovie={setSelectedMovie}
-        refreshTrigger={historyTrigger}
+        refreshTrigger={listsTrigger}
       />
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col gap-10">
         <HomeSections
-          watchlistIds={watchlistIds}
-          favoriteIds={favoriteIds}
-          onSelectMovie={setSelectedMovie}
-        />
-        <ExploredTabs
-          refreshTrigger={historyTrigger}
           watchlistIds={watchlistIds}
           favoriteIds={favoriteIds}
           onSelectMovie={setSelectedMovie}
@@ -153,8 +128,6 @@ export default function Home() {
           onCreateList={createList}
           isFavorited={favoriteIds.has(selectedMovie.id)}
           onFavoriteToggle={handleFavoriteToggle}
-          isWatched={watchedIds.has(selectedMovie.id)}
-          onWatchedToggle={handleWatchedToggle}
         />
       )}
 
@@ -174,12 +147,6 @@ export default function Home() {
         renameList={renameList}
         deleteList={deleteList}
         removeFromList={removeFromList}
-      />
-
-      <DbDrawer
-        open={dbDrawerOpen}
-        onClose={() => setDbDrawerOpen(false)}
-        onSelectMovie={setSelectedMovie}
       />
     </div>
   );

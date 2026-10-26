@@ -12,7 +12,7 @@ interface RouletteMovie {
   title: string;
   year: number | null;
   poster_url: string | null;
-  type: string | null;
+  type?: string | null;
 }
 
 interface Props {
@@ -103,7 +103,7 @@ export default function RouletteSection({ onSelectMovie }: Props) {
       setError(
         hasFilter
           ? `Nenhum filme encontrado com esses filtros.`
-          : "Banco vazio. Pesquise alguns filmes primeiro."
+          : "Nada salvo ainda. Adicione filmes aos favoritos ou a uma lista."
       );
       return;
     }

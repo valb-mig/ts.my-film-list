@@ -8,7 +8,6 @@ import MovieCard from "@/components/MovieCard";
 import MovieModal from "@/components/MovieModal";
 import ListsDrawer from "@/components/ListsDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
-import DbDrawer from "@/components/DbDrawer";
 import NonWatchableAccordion from "@/components/NonWatchableAccordion";
 import DurationSelect from "@/components/DurationSelect";
 import { Movie } from "@/types/imdb";
@@ -41,10 +40,9 @@ export default function GenrePage() {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [favoritesDrawerOpen, setFavoritesDrawerOpen] = useState(false);
-  const [dbDrawerOpen, setDbDrawerOpen] = useState(false);
   const [durationBucket, setDurationBucket] = useState<DurationBucket>("any");
 
-  const { favoriteIds, watchedIds, handleFavoriteToggle, handleWatchedToggle } = useCollections();
+  const { favoriteIds, handleFavoriteToggle } = useCollections();
   const { lists, membership, listIdsFor, createList, renameList, deleteList, addToList, removeFromList } = useLists();
   const watchlistIds = useMemo(() => new Set(membership.keys()), [membership]);
 
@@ -67,14 +65,6 @@ export default function GenrePage() {
       setMovies(results);
       setHasMore(data.hasMore ?? false);
       setNextStart(data.nextStart ?? 51);
-
-      if (results.length > 0) {
-        fetch("/api/history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: `[gênero] ${genre}`, movies: results }),
-        }).catch(() => {});
-      }
     } catch {
       // noop
     } finally {
@@ -99,13 +89,6 @@ export default function GenrePage() {
       }
       setHasMore(data.hasMore ?? false);
       setNextStart(data.nextStart ?? nextStart + 50);
-      if (newMovies.length > 0) {
-        fetch("/api/history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: `[gênero] ${genre}`, movies: newMovies }),
-        }).catch(() => {});
-      }
     } catch { /* noop */ } finally {
       setLoadingMore(false);
     }
@@ -130,11 +113,6 @@ export default function GenrePage() {
           </div>
 
           <div className="flex items-center gap-1">
-            <button onClick={() => setDbDrawerOpen(true)} className="p-2 rounded-xl text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-all">
-              <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M20 6H4V4h16v2zm0 4H4V8h16v2zm-8 8H4v-2h8v2zm0-4H4v-2h8v2zm5 1v3h-2v-3h-3v-2h3v-3h2v3h3v2h-3z" />
-              </svg>
-            </button>
             <button onClick={() => setFavoritesDrawerOpen(true)} className="relative p-2 rounded-xl text-[#9a8878] hover:text-[#f0e8dc] hover:bg-white/[0.06] transition-all">
               <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z" />
@@ -249,8 +227,6 @@ export default function GenrePage() {
           onCreateList={createList}
           isFavorited={favoriteIds.has(selectedMovie.id)}
           onFavoriteToggle={handleFavoriteToggle}
-          isWatched={watchedIds.has(selectedMovie.id)}
-          onWatchedToggle={handleWatchedToggle}
         />
       )}
 
@@ -265,7 +241,6 @@ export default function GenrePage() {
         deleteList={deleteList}
         removeFromList={removeFromList}
       />
-      <DbDrawer open={dbDrawerOpen} onClose={() => setDbDrawerOpen(false)} onSelectMovie={setSelectedMovie} />
     </div>
   );
 }

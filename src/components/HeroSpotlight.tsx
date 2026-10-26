@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import { Movie } from "@/types/imdb";
 import { MovieDetail } from "@/lib/datasource";
-import { isWatchable } from "@/lib/watchable";
 import type { ListInfo } from "@/hooks/useLists";
 
 interface FeaturedMovie {
@@ -82,14 +81,10 @@ export default function HeroSpotlight({ watchlistIds, lists, onAddToList, onRemo
         setFeatured({ id: w.imdb_id, title: w.title, year: w.year, poster: w.poster_url });
         return;
       }
-      const hRes = await fetch("/api/history/genres");
-      const hMovies: { imdb_id: string; title: string; year?: number; poster_url?: string; type?: string }[] = await hRes.json();
-      const first = hMovies.find((m) => isWatchable(m.type ? String(m.type) : null));
-      if (first) {
-        setFeatured({ id: first.imdb_id, title: first.title, year: first.year, poster: first.poster_url });
-      } else {
-        setFeatured(null);
-      }
+      const favRes = await fetch("/api/favorites");
+      const favorites: ListItemRow[] = await favRes.json();
+      const f = favorites[0];
+      setFeatured(f ? { id: f.imdb_id, title: f.title, year: f.year, poster: f.poster_url } : null);
     } catch {
       setFeatured(null);
     } finally {
