@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { readTitleUrl } from "@/lib/titleUrl";
 import type { Movie } from "@/types/imdb";
 import { useCollections } from "@/hooks/useCollections";
 import { useLists } from "@/hooks/useLists";
@@ -52,6 +53,18 @@ export default function TvApp() {
   const [detailMovie, setDetailMovie] = useState<Movie | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Sent from the phone ("Transmitir no projetor"): /tv?t=<id>[&s=&e=]&play=1 opens that title and
+  // plays it. The params leave the address right away, so a reload lands on the rows.
+  const [autoplay, setAutoplay] = useState<{ id: string; season?: number; episode?: number } | null>(null);
+
+  useEffect(() => {
+    const { id, season, episode } = readTitleUrl();
+    if (!id) return;
+    const play = new URLSearchParams(window.location.search).get("play") === "1";
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+    if (play) setAutoplay({ id, season, episode });
+    setDetailMovie({ id, title: "" });
+  }, []);
 
   useTvNav(() => {
     const handled = handleTvBack();
@@ -194,7 +207,8 @@ export default function TvApp() {
           onAddToList={addToListAndRefresh}
           onRemoveFromList={removeFromListAndRefresh}
           onCreateList={createList}
-          onClose={() => setDetailMovie(null)}
+          onClose={() => { setDetailMovie(null); setAutoplay(null); }}
+          autoplay={autoplay?.id === detailMovie.id ? autoplay : undefined}
         />
       )}
 

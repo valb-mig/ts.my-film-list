@@ -9,6 +9,8 @@ import { readTitleUrl, writeTitleUrl } from "@/lib/titleUrl";
 import type { StreamResult, SubtitleResult } from "@/lib/scrapers/types";
 import type { ListInfo } from "@/hooks/useLists";
 import { sourceQuery, useSourceList } from "@/hooks/useSourceList";
+import { useCast } from "@/hooks/useCast";
+import { isTvMode } from "@/lib/tvMode";
 import PlayerModal from "./PlayerModal";
 import PlayerSidebar from "./PlayerSidebar";
 import SeriesPanel from "./SeriesPanel";
@@ -69,6 +71,58 @@ function PostWatchCard({ poster, title, rateUrl, onClose }: { poster?: string; t
   );
 }
 
+// Playing on the projector (sent from here): what's on, the hub's remote, or back to watching here.
+function CastingCard({ poster, title, remote, onWatchHere, onClose }: {
+  poster?: string; title: string; remote: string | null; onWatchHere: () => void; onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-lg"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="flex flex-col items-center gap-5 rounded-3xl bg-[#0f0d0b] border border-white/[0.08] px-10 py-8 shadow-[0_40px_100px_rgba(0,0,0,0.9)] text-center">
+        {poster && (
+          <div className="relative w-28 aspect-[2/3] rounded-xl overflow-hidden shadow-lg">
+            <Image src={poster} alt="" fill sizes="112px" className="object-cover" />
+          </div>
+        )}
+        <div className="flex flex-col items-center gap-1">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#d4845a]">
+            <Icon name="cast" size={14} />
+            Tocando no projetor
+          </p>
+          <p className="text-xl font-black text-[#f0e8dc]">{title}</p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {remote && (
+            <a
+              href={remote}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 h-11 px-5 rounded-xl text-sm font-bold bg-[#d4845a] hover:bg-[#e2946a] text-white transition-colors"
+            >
+              Abrir controle ↗
+            </a>
+          )}
+          <button
+            onClick={onWatchHere}
+            className="flex items-center gap-2 h-11 px-5 rounded-xl text-sm font-semibold bg-white/[0.08] hover:bg-white/[0.14] text-[#f0e8dc] transition-colors"
+          >
+            <Icon name="play" size={14} />
+            Assistir aqui
+          </button>
+          <button
+            onClick={onClose}
+            className="h-11 px-5 rounded-xl text-sm font-semibold bg-white/[0.08] hover:bg-white/[0.14] text-[#f0e8dc] transition-colors"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoadingScreen({ movie, failed, onClose }: { movie: Movie; failed: boolean; onClose: () => void }) {
   return (
     <div
@@ -115,6 +169,9 @@ export default function MovieModal({
   const [lastWatched, setLastWatched] = useState<{ season: number; episode: number } | null>(null);
   // Closed the player after watching most of a movie: show the "rate it" card instead of closing.
   const [postWatch, setPostWatch] = useState(false);
+  // Sent to the projector: a card here instead of the player (series: picking an episode sends it).
+  const [casting, setCasting] = useState(false);
+  const { available: canCast, remote, cast } = useCast(!isTvMode());
 
   useEffect(() => { setFavorited(isFavorited); }, [isFavorited, movie.id]);
 
@@ -126,6 +183,7 @@ export default function MovieModal({
     setWatching(false);
     setLastWatched(null);
     setPostWatch(false);
+    setCasting(false);
     // Home-row cards carry a synthetic tmdb-* id; the detail resolves the real IMDb id.
     setResolvedId(/^tt\d+$/.test(id) ? id : null);
     let cancelled = false;
@@ -154,7 +212,7 @@ export default function MovieModal({
   const ready = loadedFor === movie.id;
   const isSeries = (detail?.titleType ?? movie.type) === "TV series";
   const seasons = detail?.seasons ?? [];
-  const playerOpen = ready && !postWatch && (!isSeries || watching);
+  const playerOpen = ready && !postWatch && !casting && (!isSeries || watching);
 
   const query = playerOpen && resolvedId
     ? sourceQuery(resolvedId, detail?.title ?? movie.title, detail?.year ?? movie.year, isSeries ? { season, episode } : null)
@@ -257,6 +315,20 @@ export default function MovieModal({
     setWatching(true);
   }, []);
 
+  const castNow = useCallback(async (s = season, e = episode) => {
+    if (!resolvedId) return;
+    const series = isSeries ? { s, e } : null;
+    if (await cast(resolvedId, series?.s, series?.e)) {
+      if (series) {
+        setSeason(s);
+        setEpisode(e);
+        setLastWatched({ season: s, episode: e });
+        setWatching(true);
+      }
+      setCasting(true);
+    }
+  }, [resolvedId, isSeries, season, episode, cast]);
+
   if (!ready || (isSeries && !resolvedId)) {
     return <LoadingScreen movie={movie} failed={ready} onClose={onClose} />;
   }
@@ -265,6 +337,7 @@ export default function MovieModal({
   }
 
   const saved = defaultList ? listIds.has(defaultList.id) : false;
+  const onPlayEpisode = casting ? (s: number, e: number) => { void castNow(s, e); } : playEpisode;
 
   return (
     <>
@@ -284,8 +357,19 @@ export default function MovieModal({
           season={season}
           episode={episode}
           lastWatched={lastWatched}
-          onPlay={playEpisode}
+          onPlay={onPlayEpisode}
           onClose={onClose}
+        />
+      )}
+
+      {casting && (!isSeries || watching) && (
+        <CastingCard
+          poster={poster}
+          title={isSeries ? `${title} · T${season} E${episode}` : title}
+          remote={remote}
+          onWatchHere={() => setCasting(false)}
+          // Series: back to the episodes, still sending — the next one picked goes to the projector.
+          onClose={() => (isSeries ? setWatching(false) : onClose())}
         />
       )}
 
@@ -300,6 +384,7 @@ export default function MovieModal({
           status={streamsLoading ? "Procurando fonte…" : "Nenhuma fonte disponível pra este título."}
           subtitles={subtitles}
           rateUrl={letterboxdUrl}
+          onCast={canCast && resolvedId ? () => { void castNow(); } : undefined}
           next={
             upNext
               ? {

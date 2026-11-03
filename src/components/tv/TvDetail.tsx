@@ -24,6 +24,9 @@ interface Props {
   onRemoveFromList: (listId: number, id: string) => Promise<void>;
   onCreateList: (name: string) => Promise<ListInfo | null>;
   onClose: () => void;
+  // Sent from the phone ("Transmitir no projetor"): play as soon as a source is in — series: this
+  // episode, or the first one.
+  autoplay?: { season?: number; episode?: number };
 }
 
 const bigButton =
@@ -36,6 +39,7 @@ const scrollRow = "flex gap-[0.8vw] overflow-x-auto py-[0.7vw] px-[0.5vw] [scrol
 
 export default function TvDetail({
   movie, isFavorite, onToggleFavorite, lists, listIdsFor, onAddToList, onRemoveFromList, onCreateList, onClose,
+  autoplay,
 }: Props) {
   const [detail, setDetail] = useState<MovieDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +51,7 @@ export default function TvDetail({
   const [pendingPlay, setPendingPlay] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const playRef = useRef<HTMLButtonElement>(null);
+  const autoplayRef = useRef(autoplay);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +60,13 @@ export default function TvDetail({
       setDetail(d);
       if (d?.seasons?.length) setSeason(d.seasons[0].number);
       setLoading(false);
+      const auto = autoplayRef.current;
+      if (!auto) return;
+      if (d?.titleType === "TV series" && d.seasons?.length) {
+        setSeason(auto.season ?? d.seasons[0].number);
+        setEpisode(auto.episode ?? 1);
+      }
+      setPendingPlay(true);
     });
     return () => { cancelled = true; };
   }, [movie.id]);
@@ -65,10 +77,13 @@ export default function TvDetail({
   const episodeCount = seasons.find((s) => s.number === season)?.episodeCount ?? 0;
   const title = detail?.title ?? movie.title;
   const year = detail?.year ?? movie.year;
-  const saved: Movie = { id: id ?? movie.id, title, year, poster: movie.poster };
+  // Opened from a link (just the id): the poster comes with the detail.
+  const poster = movie.poster ?? detail?.poster;
+  const saved: Movie = { id: id ?? movie.id, title, year, poster };
   const favorite = isFavorite(saved.id);
 
-  const query = !loading && id ? sourceQuery(id, movie.title, movie.year, isSeries ? { season, episode } : null) : null;
+  // Title and year from the detail: a title opened from a link ("Transmitir") arrives with just its id.
+  const query = !loading && id ? sourceQuery(id, title, year, isSeries ? { season, episode } : null) : null;
   const { items: streams, loading: streamsLoading } = useSourceList<StreamResult>("/api/streams", query, loading);
   const { items: subtitles } = useSourceList<SubtitleResult>("/api/subtitles", query, loading);
   const sub = streams.find((s) => s.kind === "sub")?.servers[0];
@@ -140,14 +155,14 @@ export default function TvDetail({
         return true;
       }}
     >
-      {movie.poster && (
-        <Image src={movie.poster} alt="" fill sizes="100vw" className="object-cover opacity-25 blur-[3vw] scale-110" />
+      {poster && (
+        <Image src={poster} alt="" fill sizes="100vw" className="object-cover opacity-25 blur-[3vw] scale-110" />
       )}
       <div className="absolute inset-0 bg-gradient-to-r from-[#0a0906] via-[#0a0906]/90 to-[#0a0906]/50" />
 
       <div className="relative h-full flex items-center gap-[4vw] px-[5vw] py-[5vh]">
         <div className="relative shrink-0 w-[22vw] aspect-[2/3] rounded-[1.2vw] overflow-hidden bg-white/[0.05] shadow-[0_2vw_5vw_rgba(0,0,0,0.8)]">
-          {movie.poster && <Image src={movie.poster} alt="" fill sizes="25vw" className="object-cover" />}
+          {poster && <Image src={poster} alt="" fill sizes="25vw" className="object-cover" />}
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col gap-[1.3vw]">
