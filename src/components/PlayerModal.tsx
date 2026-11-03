@@ -37,6 +37,8 @@ interface Props {
   next?: { label: string; name?: string; still?: string; onPlay: () => void };
   // Shown beside the video when not in theater mode (details, saving, recommendations).
   aside?: React.ReactNode;
+  // "Transmitir no projetor" button in the bar (only while the projector hub is open).
+  onCast?: () => void;
 }
 
 interface SubtitleOption {
@@ -86,11 +88,13 @@ function isTyping(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 }
 
+type HubWindow = Window & { webkit?: { messageHandlers?: { hub?: { postMessage: (m: string) => void } } } };
+
 const barButton =
   "px-2.5 h-7 rounded-lg text-xs font-medium text-[#9a8878] hover:text-[#f0e8dc] bg-white/[0.06] hover:bg-white/[0.12] transition-colors disabled:opacity-40 outline-none focus:ring-2 focus:ring-[#d4845a] focus:text-[#f0e8dc]";
 
 export default function PlayerModal({
-  title, label, embedUrl, searching = false, status, subtitles, onClose, rateUrl, next, aside,
+  title, label, embedUrl, searching = false, status, subtitles, onClose, rateUrl, next, aside, onCast,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -195,9 +199,29 @@ export default function PlayerModal({
     });
   }, []);
 
+  // TV (inside the projector hub): the embedded player is another site's page, so OK can't reach its
+  // play button from here. The hub can — a real click in the middle of the video, which toggles
+  // play/pause. Asked for on OK / play-pause while nothing in the bar has focus, and to start the
+  // video as soon as the player says it's ready (it takes a while: ~10–30 s on the projector's
+  // Wi-Fi; a click before that is lost) — plus once more if it still isn't playing 4 s later.
+  const clickVideo = useCallback(() => {
+    (window as HubWindow).webkit?.messageHandlers?.hub?.postMessage("click-video");
+  }, []);
+  const autoStart = useRef<ReturnType<typeof setTimeout>[] | null>(null);
+  const startWhenReady = useCallback(() => {
+    if (!tv || autoStart.current) return;
+    autoStart.current = [300, 4300].map((ms) =>
+      setTimeout(() => { if (!clockRef.current.isPlaying()) clickVideo(); }, ms));
+  }, [tv, clickVideo]);
+  useEffect(() => () => autoStart.current?.forEach(clearTimeout), []);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      const nothingFocused = !document.activeElement || document.activeElement === document.body;
+      if (tv && nothingFocused && (e.key === "Enter" || e.key === "MediaPlayPause")) {
+        e.preventDefault();
+        clickVideo();
+      } else if (e.key === "Escape") {
         if (editing) setEditing(false);
         // In fullscreen, Escape just leaves fullscreen.
         else if (!document.fullscreenElement) close();
@@ -207,7 +231,7 @@ export default function PlayerModal({
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [close, editing, tv, toggleTheater]);
+  }, [close, editing, tv, toggleTheater, clickVideo]);
 
   useEffect(() => {
     if (!rateUrl || tv) return;
@@ -252,6 +276,8 @@ export default function PlayerModal({
       if (e.source !== iframeRef.current?.contentWindow) return;
       clockRef.current.handle(e.data);
       const type = (e.data as { type?: unknown } | null)?.type;
+      const status = (e.data as { data?: { player_status?: unknown } } | null)?.data?.player_status;
+      if (type === "PLAYER_EVENT" && status === "ready") startWhenReady();
       if (type === "CURSOR_SHOW") {
         setCursorVisible(true);
         // The mouse is over the video, so it isn't over the bar — even if the browser never told us
@@ -266,7 +292,7 @@ export default function PlayerModal({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [wakeBar]);
+  }, [wakeBar, startWhenReady]);
 
   useEffect(() => {
     setCues(null);
@@ -577,6 +603,18 @@ export default function PlayerModal({
                     )}
                   </svg>
                 </button>
+                {onCast && !tv && (
+                  <button
+                    onClick={onCast}
+                    className={barButton}
+                    aria-label="Transmitir no projetor"
+                    title="Transmitir no projetor"
+                  >
+                    <svg width="14" height="13" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z" />
+                    </svg>
+                  </button>
+                )}
                 {!tv && (
                   <button
                     onClick={toggleTheater}
