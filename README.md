@@ -62,6 +62,13 @@ Vem vazio nesse build (`config.json` com `enabled: []`), só com o contrato defi
 
 **Para plugar sua própria fonte:** implemente `ScraperStrategy` (ou `MovieDataSource`, pro caso de metadados) num arquivo novo, registre e ative no config — nenhum outro arquivo precisa mudar.
 
+**Atalho sem código — link do player:** se o site onde você assiste só monta a URL do embed a partir
+do id do IMDb, não precisa de arquivo nenhum. `index.ts` vira esse link numa fonte (legendada), lendo
+dois modelos do `.env.local`: `STREAM_MOVIE_URL` (ex.: `https://exemplo.com/embed/movie/{id}`) e,
+opcional, `STREAM_TV_URL` (ex.: `https://exemplo.com/embed/tv/{id}/{season}/{episode}`). O
+`scripts/setup.sh` pergunta: é só colar o link de um filme aberto no player, o `tt…` vira `{id}`. O
+site fica só na sua máquina — o repo não traz nenhum.
+
 ### Variáveis de ambiente
 
 ```bash
@@ -70,6 +77,9 @@ cp .env.example .env.local
 
 `DATA_SOURCE=mock` força o `MockDataSource`; qualquer outro valor (ou ausente) usa `TmdbDataSource`,
 que exige `TMDB_ACCESS_TOKEN` (crie um gratuito em https://www.themoviedb.org/settings/api).
+
+`STREAM_MOVIE_URL` / `STREAM_TV_URL` são os modelos de link do player (ver "Atalho sem código" acima).
+Trocou o link? `scripts/setup.sh --reconfigurar` pergunta de novo (Enter mantém) e reinicia o serviço.
 
 `.env.local` nunca é commitado.
 
@@ -127,7 +137,18 @@ scripts/setup.sh --overlay ~/scraper-overlay.zip   # (gerado por scripts/pack-re
   Zen estiver aberto, o script abre o `about:profiles` nele — um clique em "Reiniciar normalmente…"
   (as abas voltam) e ele confirma que a extensão ficou ativa. Só a extensão: `scripts/setup.sh --so-extensao`.
   Detalhes em [`extensions/firefox-popup-closer`](extensions/firefox-popup-closer).
-- Pede o token do TMDB se faltar (ou `TMDB_ACCESS_TOKEN=… scripts/setup.sh`).
+- Pede o token do TMDB se faltar e confere na API antes de salvar (ou `TMDB_ACCESS_TOKEN=… scripts/setup.sh`).
+- Pede o link do site do player se faltar: cole o link de um filme aberto nele (ex.:
+  `https://exemplo.com/embed/movie/tt0111161`) — colou só a base (`https://exemplo.com/embed`)? Ele
+  propõe `…/movie/{id}` e pergunta. Depois confirma o palpite pro link de série. Sem perguntar:
+  `STREAM_MOVIE_URL=… STREAM_TV_URL=… scripts/setup.sh`.
+- Mostra um resumo antes de instalar; `npm install` e o build rodam em silêncio (log em
+  `/tmp/my-film-list-setup.log`, que aparece se algo falhar). No fim testa de verdade: busca um filme
+  no TMDB e o link dele no player.
+- Porta: `3100`, ou `MFL_PORT=…` (não `PORT`, que outras ferramentas costumam exportar). Se outro
+  programa estiver nela, ele oferece a próxima livre antes de instalar o serviço.
+- Trocar token ou link depois: `scripts/setup.sh --reconfigurar` (Enter mantém o atual; só reinicia,
+  sem recompilar).
 
 Atualizar: `git pull && scripts/setup.sh`. Remover: `scripts/setup.sh --desinstalar`.
 Pra desenvolver com o serviço ligado, rode o dev em outra porta: `npm run dev -- -p 3001` (o build de

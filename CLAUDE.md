@@ -27,6 +27,11 @@ O que muda é na hora de subir pro git:
 - Não altere `src/lib/scrapers/config.json` pra `enabled` não-vazio dentro de
   um commit sem o mesmo aviso — habilitar uma fonte real é o mesmo tipo de
   decisão.
+- O link do player (`STREAM_MOVIE_URL`/`STREAM_TV_URL`, lido em
+  `src/lib/scrapers/index.ts`) só existe no `.env.local` de cada um. Nunca
+  colocar domínio de site real como default, exemplo ou fallback em
+  `index.ts`, `scripts/setup.sh`, `.env.example` ou README — só
+  `exemplo.com`. Mesmo aviso de antes se aparecer num diff.
 
 **Por quê:** repo é público. Scraper real de fonte pirata comitado sem querer
 compromete o projeto a risco de DMCA/takedown no GitHub. A regra é sobre o

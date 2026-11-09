@@ -10,11 +10,56 @@ import type {
   SubtitleStrategy,
 } from "./types";
 
+// Stream source built from the link pasted in scripts/setup.sh — no site is hardcoded here, the
+// templates live in .env.local: STREAM_MOVIE_URL (".../movie/{id}") and, optionally, STREAM_TV_URL
+// (".../tv/{id}/{season}/{episode}"). {id} is the IMDb id.
+function createLinkScraper(): ScraperStrategy | null {
+  const movieUrl = process.env.STREAM_MOVIE_URL?.trim() || undefined;
+  const tvUrl = process.env.STREAM_TV_URL?.trim() || undefined;
+  const sample = movieUrl ?? tvUrl;
+  if (!sample?.includes("{id}")) return null;
+
+  let host: string;
+  try {
+    host = new URL(sample).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+
+  const fill = (template: string, values: Record<string, string | number>) =>
+    template.replace(/\{(\w+)\}/g, (match, key: string) =>
+      key in values ? encodeURIComponent(String(values[key])) : match
+    );
+
+  return {
+    name: host,
+    kind: "sub",
+    async scrape({ id, type, season, episode }) {
+      if (!/^tt\d+$/.test(id)) return null;
+
+      let embedUrl: string;
+      if (type === "tv") {
+        if (!tvUrl || !season || !episode) return null;
+        embedUrl = fill(tvUrl, { id, season, episode });
+      } else {
+        if (!movieUrl) return null;
+        embedUrl = fill(movieUrl, { id });
+      }
+
+      return { source: host, movieUrl: embedUrl, servers: [{ id: "link", label: host, embedUrl }] };
+    },
+  };
+}
+
 const sources: Source[] = config.enabled
   .map((id) => createScraper(id))
   .filter((s): s is Source => s !== null);
 
-const scrapers = sources.filter((s): s is ScraperStrategy => "scrape" in s);
+const linkScraper = createLinkScraper();
+const scrapers = [
+  ...sources.filter((s): s is ScraperStrategy => "scrape" in s),
+  ...(linkScraper ? [linkScraper] : []),
+];
 const subtitleSources = sources.filter((s): s is SubtitleStrategy => "findSubtitles" in s);
 
 export async function findStreams(input: ScraperInput): Promise<StreamResult[]> {
